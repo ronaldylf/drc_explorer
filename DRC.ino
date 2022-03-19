@@ -16,6 +16,16 @@ void interruptL (){
   motorL.isr();
 }
 
+////////////////////////////
+// variables
+float left_distance = 0;
+float front_distance = 0;
+float right_distance = 0;
+float basespeed = 50;
+float turnspeed = 40;
+float c = 1.0; // coefficient ( 1 or -1)
+////////////////////////////////
+
 void setup (){
   Serial.begin (9600);
   // right motor:
@@ -38,34 +48,17 @@ void setup (){
   attachInterrupt(digitalPinToInterrupt(3), interruptL, FALLING);
 
   both.setGyreDegreesRatio(1.28, 180);
-}
-
-////////////////////////////
-// variables
-float left_distance = 0;
-float front_distance = 0;
-float right_distance = 0;
-float basespeed = 50;
-float turnspeed = 40;
-float c = 1.0; // coefficient ( 1 or -1)
-////////////////////////////////
-
-void loop () {
-  readDistances();
-  while (front_distance>=5) {
-    motorR.walk(basespeed);
-    motorL.walk(basespeed);
-    readDistances();
-  }
-  both.stop();
+  ////////////////////// start ////////////////////////
+  forwardWhileFrontDistance(">=", 5);
   delay(100);
-  c = getLargerDirection();
+  c = getLargerDirectionCoefficient();
   both.turnDegree(turnspeed*c, 90*c);
   both.stop();
+}
 
-  // falta desviar de obstaculo
-  // identificar area de resgate
-  // resgate
+
+void loop () {
+  
 }
 void readDistances(){
   left_distance = 0;
@@ -73,11 +66,28 @@ void readDistances(){
   right_distance = 0;
 }
 
-float getLargerDirection() {
+float getLargerDirectionCoefficient() {
   // return the coefficient of direction with largest distance value
   readDistances();
   if (right_distance>left_distance) return 1.0;
   return -1.0;
+}
+
+
+void forwardWhileFrontDistance(String string_condition, float value) {
+  bool condition = true;
+  while (condition) {
+    motorR.walk(basespeed);
+    motorL.walk(basespeed);
+    condition = false;
+    readDistances();
+    if (string_condition==">") condition = (front_distance>value);
+    if (string_condition==">=") condition = (front_distance>=value);
+    if (string_condition=="<") condition = (front_distance<value);
+    if (string_condition=="<=") condition = (front_distance<=value);
+    readDistances();
+  }
+  both.stop();
 }
 
 void debug() {
