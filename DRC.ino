@@ -1,7 +1,6 @@
 #include <DC_motor_controller.h>
 #include <TwoMotors.h>
 #include <My_ultrassonic.h>
-#include <LineSensors_Master.h>
 
 DC_motor_controller motorR;
 DC_motor_controller motorL;
@@ -17,19 +16,22 @@ void interruptL (){
 }
 
 ////////////////////////////
-// variables
+// editable variables
+float basespeed = 50;
+float turnspeed = 40;
+////////////////////////////////
+// dynamic variables
 float left_distance = 0;
 float front_distance = 0;
 float right_distance = 0;
-float basespeed = 50;
-float turnspeed = 40;
+bool obstacleAhead = false;
 float c = 1.0; // coefficient ( 1 or -1)
 ////////////////////////////////
 
 void setup (){
   Serial.begin (9600);
   // right motor:
-  motorR.hBridge(9,10,8);
+  motorR.hBridge(0,0,0);
   motorR.setEncoderPin(2,5);
   motorR.setRR(21.3);
   motorR.setPIDconstants(1.9, 0.9, 0.1);
@@ -37,7 +39,7 @@ void setup (){
   motorR.walk(0);
 
   // left motor:
-  motorL.hBridge(11,12,13);
+  motorL.hBridge(0, 0, 0);
   motorL.setEncoderPin(3,4);
   motorL.setRR(21.3);
   motorL.setPIDconstants(1.9, 0.9, 0.1);
@@ -48,12 +50,51 @@ void setup (){
   attachInterrupt(digitalPinToInterrupt(3), interruptL, FALLING);
 
   both.setGyreDegreesRatio(1.28, 180);
-  ////////////////////// start ////////////////////////
-  forwardWhileFrontDistance(">=", 5);
+  
+  ////////////////////// start movements////////////////////////
+  adjustFrontDistance(basespeed, 5);
   delay(100);
-  c = getLargerDirectionCoefficient();
-  both.turnDegree(turnspeed*c, 90*c);
+  both.turnDegree(-turnspeed, -90);
+  
+  adjustFrontDistance(basespeed, 5);
+  delay(100);
+  both.turnDegree(-turnspeed, -90);
+
+  both.together(basespeed, 1);
+  both.turnDegree(-turnspeed, -90);
+  adjustFrontDistance(basespeed, 5);
+  both.turnDegree(turnspeed, 90);
+
+  readDistances();
+  obstacleAhead = front_distance<=65;
+  // outline obstacle and goes to wall
+  if (obstacleAhead) dodgeObstacle();
+  adjustFrontDistance(basespeed, 5);
+
+  both.turnDegree(turnspeed, 90);
+  readDistances();
+  obstacleAhead = front_distance<=65;
+  // outline obstacle and goes to wall
+  if (obstacleAhead) dodgeObstacle();
+  adjustFrontDistance(basespeed, 5);
+
+  both.turnDegree(turnspeed, 90);
+
+  while (!isRescueArea()) {
+    motorR.walk(basespeed);
+    motorL.walk(basespeed);
+  }
   both.stop();
+  
+  ////////////////////// start rescue////////////////////////
+  both.together(basespeed, 1);
+  both.turnDegree(turnspeed, 90);
+  Align();
+  adjustFrontDistance(basespeed, 5);
+  both.turnDegree(-turnspeed, -90);
+  adjustFrontDistance(basespeed, 5);
+  both.turnDegree(-turnspeed, -90);
+  takeDownWall();
 }
 
 
@@ -74,19 +115,55 @@ float getLargerDirectionCoefficient() {
 }
 
 
-void forwardWhileFrontDistance(String string_condition, float value) {
-  bool condition = true;
-  while (condition) {
-    motorR.walk(basespeed);
-    motorL.walk(basespeed);
-    condition = false;
-    readDistances();
-    if (string_condition==">") condition = (front_distance>value);
-    if (string_condition==">=") condition = (front_distance>=value);
-    if (string_condition=="<") condition = (front_distance<value);
-    if (string_condition=="<=") condition = (front_distance<=value);
-    readDistances();
+void adjustFrontDistance(float speed, float desired_distance) {
+  both.stop();
+  speed = abs(speed);
+  desired_distance = abs(speed);
+  float c = 1.0;
+  readDistances();
+  bool go_forward = front_distance>desired_distance;
+  bool go_backward = front_distance<desired_distance;
+  
+  if (!go_forward && !go_backward) {
+    // in this case front_distance==desired_distance
+  } else if (go_forward) {
+    while (front_distance>desired_distance) {
+      motorR.walk(speed);
+      motorL.walk(speed);
+      readDistances();
+    }
+  } else if (go_backward) {
+    while (front_distance<desired_distance) {
+      motorR.walk(-speed);
+      motorL.walk(-speed);
+      readDistances();
+    }
   }
+  both.stop();
+}
+
+void dodgeObstacle() {
+  adjustFrontDistance(basespeed, 5);
+  /*
+    outline obstacle
+    (take into consideration that the obstacle can be standing or lying)
+    verify if the dimensions 24x13 cm of the robot will be able to pass
+    all curves on the track
+    */
+}
+
+bool isRescueArea() {
+  return false;
+}
+
+void Align() {
+  
+}
+
+void takeDownWall(float speed) {
+  speed = abs(speed);
+  both.together(speed, 0.5);
+  both.together(-speed, -0.5);
   both.stop();
 }
 
