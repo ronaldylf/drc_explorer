@@ -1,7 +1,11 @@
 #include <DC_motor_controller.h>
 #include <TwoMotors.h>
 #include <My_ultrassonic.h>
+#include <Servo.h>
+#include <Adafruit_VL53L0X.h>
 
+Adafruit_VL53L0X lox_front = Adafruit_VL53L0X();
+Servo servoDistance;
 DC_motor_controller motorR;
 DC_motor_controller motorL;
 
@@ -16,20 +20,23 @@ void interruptL (){
 }
 
 ////////////////////////////
-// editable variables
-float basespeed = 50;
-float turnspeed = 40;
+// static variables
+float basespeed = 50.0;
+float turnspeed = 40.0;
 ////////////////////////////////
 // dynamic variables
-float left_distance = 0;
 float front_distance = 0;
 float right_distance = 0;
-bool obstacleAhead = false;
+bool objectAhead = false;
 float c = 1.0; // coefficient ( 1 or -1)
 ////////////////////////////////
 
 void setup (){
   Serial.begin (9600);
+  // servo to move distance sensor
+  servoDistance.attach(0);
+  servoDistance.write(90); //0(left) 90(front)
+  
   // right motor:
   motorR.hBridge(0,0,0);
   motorR.setEncoderPin(2,5);
@@ -50,36 +57,61 @@ void setup (){
   attachInterrupt(digitalPinToInterrupt(3), interruptL, FALLING);
 
   both.setGyreDegreesRatio(1.28, 180);
+
+  debugBlock:
+    Serial.println("debug here");
+    while(true);
   
   ////////////////////// start movements////////////////////////
+  //first running and climb
+  adjustFrontDistance(basespeed, 5);
+
+  // going down first stair
+  delay(100);
+  both.turnDegree(-turnspeed, -90);
   adjustFrontDistance(basespeed, 5);
   delay(100);
   both.turnDegree(-turnspeed, -90);
+  goto obRight;
   
-  adjustFrontDistance(basespeed, 5);
-  delay(100);
-  both.turnDegree(-turnspeed, -90);
-
-  both.together(basespeed, 1);
-  both.turnDegree(-turnspeed, -90);
-  adjustFrontDistance(basespeed, 5);
+  // mid lane blocks
+  obRight:
+    // without obstacle in mid in right
+    both.together(basespeed, 1);
+    both.turnDegree(-turnspeed, -90);
+    while (rightDistance()<70) {
+      motorR.walk(basespeed);
+      motorL.walk(basespeed);
+    }
+    both.together(50, 1);
+    both.stop();
+    both.turnDegree(turnspeed, 90);
+    adjustFrontDistance(basespeed, 5);
+    both.turnDegree(turnspeed, 90);
+    
+  obLeft:
+    adjustFrontDistance(basespeed, 5);
+    both.turnDegree(turnspeed, 90);
+    
+  obHall:
+    while (rightDistance()<10) {
+      motorR.walk(basespeed);
+      motorL.walk(basespeed);
+    }
+    both.stop();
+    both.together(basespeed, 1);
+    float c = 0.5; // turning coefficient
+    float rotations = 1;
+    both.together(turnspeed, rotations, turnspeed*c, rotations);
+    both.turnDegree(-turnspeed, -90);
+    adjustFrontDistance(basespeed, 5);
+    both.turnDegree(-turnspeed, -90);
+    adjustFrontDistance(basespeed, 5);
+    both.turnDegree(turnspeed, 90);
+  
+  adjustFrontDistance(basespeed, 6);
   both.turnDegree(turnspeed, 90);
-
-  readDistances();
-  obstacleAhead = front_distance<=65;
-  // outline obstacle and goes to wall
-  if (obstacleAhead) dodgeObstacle();
-  adjustFrontDistance(basespeed, 5);
-
-  both.turnDegree(turnspeed, 90);
-  readDistances();
-  obstacleAhead = front_distance<=65;
-  // outline obstacle and goes to wall
-  if (obstacleAhead) dodgeObstacle();
-  adjustFrontDistance(basespeed, 5);
-
-  both.turnDegree(turnspeed, 90);
-
+  // second running
   while (!isRescueArea()) {
     motorR.walk(basespeed);
     motorL.walk(basespeed);
@@ -94,63 +126,60 @@ void setup (){
   both.turnDegree(-turnspeed, -90);
   adjustFrontDistance(basespeed, 5);
   both.turnDegree(-turnspeed, -90);
-  takeDownWall();
+  takeDownWall(40);
 }
 
 
 void loop () {
   
 }
-void readDistances(){
-  left_distance = 0;
-  front_distance = 0;
-  right_distance = 0;
+
+
+float frontDistance(byte angle=0) {
+  servoDistance.write(angle);
+  return readDistance();
 }
 
-float getLargerDirectionCoefficient() {
-  // return the coefficient of direction with largest distance value
-  readDistances();
-  if (right_distance>left_distance) return 1.0;
-  return -1.0;
+float rightDistance()() {
+  servoDistance.write(90);
+  return (readDistance()-10); // distance from center to right side of robot
 }
 
+float readDistance() {
+  VL53L0X_RangingMeasurementData_t measure;
+  lox_front.rangingTest(&measure, false);
+  if (measure.RangeStatus != 4) {
+    return measure.RangeMilliMeter/10;
+  } else {
+    //out of range
+    return 200; // Max distance (cm)
+  }
+}
 
 void adjustFrontDistance(float speed, float desired_distance) {
   both.stop();
   speed = abs(speed);
-  desired_distance = abs(speed);
-  float c = 1.0;
-  readDistances();
+  desired_distance = abs(desired_distance);
+  front_distance = frontDistance()();
   bool go_forward = front_distance>desired_distance;
   bool go_backward = front_distance<desired_distance;
   
   if (!go_forward && !go_backward) {
     // in this case front_distance==desired_distance
   } else if (go_forward) {
-    while (front_distance>desired_distance) {
+    while (frontDistance()()>desired_distance) {
       motorR.walk(speed);
       motorL.walk(speed);
-      readDistances();
     }
   } else if (go_backward) {
-    while (front_distance<desired_distance) {
+    while (frontDistance()()<desired_distance) {
       motorR.walk(-speed);
       motorL.walk(-speed);
-      readDistances();
     }
   }
   both.stop();
 }
 
-void dodgeObstacle() {
-  adjustFrontDistance(basespeed, 5);
-  /*
-    outline obstacle
-    (take into consideration that the obstacle can be standing or lying)
-    verify if the dimensions 24x13 cm of the robot will be able to pass
-    all curves on the track
-    */
-}
 
 bool isRescueArea() {
   return false;
