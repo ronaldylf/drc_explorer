@@ -2,13 +2,13 @@
 #include <TwoMotors.h>
 #include <My_ultrassonic.h>
 #include <Servo.h>
-#include <LCDScroll.h>
+// #include <LCDScroll.h>
 
 
 Servo servoDistance;
 DC_motor_controller motorR;
 DC_motor_controller motorL;
-LCDScroll screen;
+// LCDScroll screen;
 My_ultrassonic ultrassonic(24, 22);
 
 TwoMotors both(&motorL, &motorR);
@@ -35,14 +35,40 @@ float right_distance = 0;
 bool objectAhead = false;
 byte code_id = 1;
 ////////////////////////////////
-void Align(byte speed = 100) {
-//  motorR.walk(speed);
-//  motorL.walk(speed);
-//  // add here a: while (not touch the button);
-//  delay(500);
-//  both.stop();
+void Align(byte speed = 70) {
+  //  if (speed > 0) {
+  //    both.together(speed, 0.4);
+  //  } else {
+  //    // going backwards
+  //  }
+  //  both.stop();
 }
 
+void adjustFrontDistance(float speed, float desired_distance, bool stop_ = true) {
+  speed = abs(speed);
+  desired_distance = abs(desired_distance);
+  front_distance = frontDistance();
+  bool go_forward = front_distance > desired_distance;
+  bool go_backward = front_distance < desired_distance;
+
+  if (!go_forward && !go_backward) {
+    // in this case front_distance==desired_distance
+  } else if (go_forward) {
+    while (frontDistance() > desired_distance) {
+      motorR.walk(speed);
+      motorL.walk(speed);
+    }
+  } else if (go_backward) {
+    while (frontDistance() < desired_distance) {
+      motorR.walk(-speed);
+      motorL.walk(-speed);
+    }
+  }
+
+  if (stop_) {
+    both.stop();
+  }
+}
 
 void setup () {
   Serial.begin (9600);
@@ -81,14 +107,15 @@ void setup () {
   motorR.stop();
   attachInterrupt(digitalPinToInterrupt(3), interruptR, FALLING);
 
-  both.setGyreDegreesRatio(1.28, 90);
+  both.setGyreDegreesRatio(1.5, 90);
 
-  screen.setButtons(0, 0, INPUT);
+  // screen.setButtons(0, 0, INPUT);
   String options[] = {
     "debugBlock",
     "obRight",
     "obLeft",
-    "obHall"
+    "obHall",
+    "rescueArena",
   };
   //  screen.setOptions(options);
   //  while(!digitalRead(ok_button)) code_id = screen.getCurrentId();
@@ -102,97 +129,103 @@ void setup () {
     while (true) {
       Serial.print("right: ");
       Serial.println(rightDistance());
-      
+
       delay(1000);
       Serial.print("front: ");
       Serial.println(frontDistance());
-      
+
       delay(1000);
       Serial.print("left: ");
       Serial.println(leftDistance());
       delay(1000);
     }
   }
-    
+
 
   ////////////////////// start movements////////////////////////
-//  while(true) {
-//    Serial.println(frontDistance());
-//  }
   //first running and climb
   Serial.println("first climb");
-  adjustFrontDistance(basespeed, 5);
+  adjustFrontDistance(basespeed, 3.2);
   Align();
-  debug();
 
   // going down first stair
   both.turnDegree(-turnspeed, -90);
-  adjustFrontDistance(basespeed, 5);
-  delay(100);
+  adjustFrontDistance(basespeed, 4);
+  Align();
+  both.together(-basespeed, -0.08);
   both.turnDegree(-turnspeed, -90);
-  goto obRight;
 
-  // mid lane blocks
-obRight:
-  // without obstacle in mid in right
-  both.together(basespeed, 1);
-  both.turnDegree(-turnspeed, -90);
-  while (rightDistance() < 70) {
+  //  obHall();
+  obRight();
+
+  while (!isRescueArena()) {
     motorR.walk(basespeed);
     motorL.walk(basespeed);
   }
-  both.together(50, 1);
-  both.stop();
-  both.turnDegree(turnspeed, 90);
-  adjustFrontDistance(basespeed, 5);
-  both.turnDegree(turnspeed, 90);
-
-obLeft:
-  adjustFrontDistance(basespeed, 5);
-  both.turnDegree(turnspeed, 90);
-
-obHall:
-  while (rightDistance() < 10) {
-    motorR.walk(basespeed);
-    motorL.walk(basespeed);
-  }
-  both.stop();
-  both.together(basespeed, 1);
-  float c = 0.5; // turning coefficient
-  float rotations = 1;
-  both.together(turnspeed, rotations, turnspeed * c, rotations);
-  both.together(basespeed, 1);
-  both.turnDegree(-turnspeed, -90);
-  adjustFrontDistance(basespeed, 5);
-  both.turnDegree(-turnspeed, -90);
-  adjustFrontDistance(basespeed, 5);
-  both.turnDegree(turnspeed, 90);
-
-  adjustFrontDistance(basespeed, 6);
-  both.turnDegree(turnspeed, 90);
-  // second running
-  while (!isRescueArea()) {
-    motorR.walk(basespeed);
-    motorL.walk(basespeed);
-  }
-  both.stop();
 
   ////////////////////// start rescue////////////////////////
-  both.together(basespeed, 1);
+  rescueArena();
+}
+
+void obRight() {
+  both.together(basespeed, 1.37);
+  both.turnDegree(-turnspeed, -90);
+  motorL.walk(turnspeed, 2.75);
+  both.stop();
+
+  rightDistance();
+  delay(350);
+
+  while (rightDistance() < 30) {
+    motorR.walk(basespeed);
+    motorL.walk(basespeed);
+  }
+  both.stop();
+  motorL.walk(turnspeed, 2.75);
+  adjustFrontDistance(basespeed, 3.5);
   both.turnDegree(turnspeed, 90);
-  Align(-130);
+}
+
+void obHall() {
+  rightDistance();
+  delay(200);
+  while (rightDistance() < 35) {
+    motorR.walk(basespeed);
+    motorL.walk(basespeed);
+  }
+
+  rightCircumvent();
+
+  both.turnDegree(-turnspeed, -90);
+  adjustFrontDistance(basespeed, 4);
+  Align();
+  both.turnDegree(-turnspeed, -90);
+  while (rightDistance() < 35) {
+    motorR.walk(basespeed);
+    motorL.walk(basespeed);
+  }
+
+  rightCircumvent();
+}
+
+void rightCircumvent() {
+  float rot_right = 1;
+  float rot_left = 6.5;
+  float right_coefficient = (rot_right / rot_left);
+  float spinspeed = basespeed;
+  both.together(spinspeed, rot_left, spinspeed * right_coefficient, rot_right);
+  both.stop();
+}
+void rescueArena() {
+  both.together(basespeed, 1.85);
+  both.turnDegree(turnspeed, 90);
+  //Align(-130);
   adjustFrontDistance(basespeed, 5);
   both.turnDegree(-turnspeed, -90);
   adjustFrontDistance(basespeed, 5);
   both.turnDegree(-turnspeed, -90);
   takeDownWall(40);
 }
-
-
-void loop () {
-
-}
-
 
 float frontDistance() {
   servoDistance.write(90);
@@ -206,7 +239,7 @@ float rightDistance() {
 
 float leftDistance() {
   servoDistance.write(180);
-  return (readDistance()-10.0);
+  return (readDistance() - 10.0);
 }
 
 float readDistance() {
@@ -215,31 +248,7 @@ float readDistance() {
   return distance;
 }
 
-void adjustFrontDistance(float speed, float desired_distance) {
-  both.stop();
-  speed = abs(speed);
-  desired_distance = abs(desired_distance);
-  front_distance = frontDistance();
-  bool go_forward = front_distance > desired_distance;
-  bool go_backward = front_distance < desired_distance;
-
-  if (!go_forward && !go_backward) {
-    // in this case front_distance==desired_distance
-  } else if (go_forward) {
-    while (frontDistance() > desired_distance) {
-      motorR.walk(speed);
-      motorL.walk(speed);
-    }
-  } else if (go_backward) {
-    while (frontDistance() < desired_distance) {
-      motorR.walk(-speed);
-      motorL.walk(-speed);
-    }
-  }
-  both.stop();
-}
-
-bool isRescueArea() {
+bool isRescueArena() {
   return false;
 }
 
@@ -253,4 +262,9 @@ void takeDownWall(float speed) {
 void debug() {
   both.stop();
   while (true) delay(1000);
+}
+
+
+void loop () {
+
 }
