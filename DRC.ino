@@ -2,15 +2,15 @@
 #include <TwoMotors.h>
 #include <My_ultrassonic.h>
 #include <Servo.h>
-// #include <LCDScroll.h>
-
+#include <Wire.h>
+#include <SparkFun_APDS9960.h>
 
 Servo servoDistance;
+Servo servoColor;
+SparkFun_APDS9960 apds = SparkFun_APDS9960();
 DC_motor_controller motorR;
 DC_motor_controller motorL;
-// LCDScroll screen;
 My_ultrassonic ultrassonic(24, 22);
-
 TwoMotors both(&motorL, &motorR);
 
 void interruptR () {
@@ -30,16 +30,21 @@ void interruptL () {
 float basespeed = 80.0;
 float turnspeed = 40.0;
 ////////////////////////////////
-// dynamic variables
+// editable variables
 bool have_right = false;
 bool have_hall = false;
 bool have_left = false;
-float front_distance = 0;
-float right_distance = 0;
-bool objectAhead = false;
 byte code_id = 1;
 ////////////////////////////////
-void Align(byte speed = 70) {
+// dynamic variables
+float front_distance = 0;
+uint16_t ambient_light = 0;
+uint16_t red_light = 0;
+uint16_t green_light = 0;
+uint16_t blue_light = 0;
+String current_colors[2] = {"WHITE", "RED"}; // {binary_color, RGB_color}
+////////////////////////////////
+void Align(byte speed = 80) {
   while (digitalRead(align_button)) {
     motorR.walk(speed);
     motorL.walk(speed);
@@ -88,13 +93,33 @@ void rightCircumvent(float rot_left = 6.5, float rot_right = 1) {
 
 void setup () {
   Serial.begin (9600);
+
+  // Initialize APDS-9960 (configure I2C and initial values)
+  if ( apds.init() ) {
+    Serial.println(F("APDS-9960 initialization complete"));
+  } else {
+    Serial.println(F("Something went wrong during APDS-9960 init!"));
+  }
+  
+  // Start running the APDS-9960 light sensor (no interrupts)
+  if ( apds.enableLightSensor(false) ) {
+    Serial.println(F("Light sensor is now running"));
+  } else {
+    Serial.println(F("Something went wrong during light sensor init!"));
+  }
+  // Wait for initialization and calibration to finish
+  delay(500);
+  
   // distance sensor
   ultrassonic.setPins();
 
   // servo to move distance sensor
   servoDistance.attach(7);
   servoDistance.write(90); //0(right) 90(front) 180 (left)
-  
+
+  // servo to move color sensor
+  servoColor.attach(0);
+  servoColor.write(0);
 
   // left motor:
   motorL.hBridge(12, 11, 13);
@@ -173,7 +198,9 @@ void setup () {
     motorL.walk(basespeed);
   }
   ////////////////////// start rescue////////////////////////
-  rescueArena();
+  rescueBlock:
+    both.stop();
+    rescueArena();
 }
 
 void obLeft() {
@@ -281,6 +308,51 @@ float readDistance() {
   float distance = ultrassonic.getDistance_cm();
   Serial.println(distance);
   return distance;
+}
+
+void readColor(byte max_black=10) {
+  // Read the light levels (ambient, red, green, blue)
+  if (  !apds.readAmbientLight(ambient_light) ||
+        !apds.readRedLight(red_light) ||
+        !apds.readGreenLight(green_light) ||
+        !apds.readBlueLight(blue_light) ) {
+    Serial.println("Error reading light values");
+  } else {
+    Serial.print("Ambient: ");
+    Serial.print(ambient_light);
+    Serial.print(" Red: ");
+    Serial.print(red_light);
+    Serial.print(" Green: ");
+    Serial.print(green_light);
+    Serial.print(" Blue: ");
+    Serial.println(blue_light);
+    if (ambient_light<=max_black) {
+      current_colors[0] = "BLACK";
+    } else {
+      current_colors[0] = "WHITE";
+    }
+
+    // current_colors
+    if ((red_light>green_light) && (red_light>blue_light)) {
+      current_colors[1] = "RED";
+    } else if ((green_light>red_light) && (green_light>blue_light)) {
+      current_colors[1] = "GREEN";
+    } else {
+      current_colors[1] = "BLUE";
+    }
+  }
+}
+
+String frontColor(byte mode=1) {
+  servoColor.write(0);
+  readColor();
+  return current_colors[mode];
+}
+
+String groundColor(byte mode=1) {
+  servoColor.write(90);
+  readColor();
+  return current_colors[mode];
 }
 
 float degreeToRad(float degrees=0) {
