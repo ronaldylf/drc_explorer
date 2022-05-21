@@ -31,7 +31,7 @@ float basespeed = 80.0;
 float turnspeed = 40.0;
 ////////////////////////////////
 // editable variables
-bool have_right = false;
+bool have_right = true;
 bool have_hall = false;
 bool have_left = false;
 byte code_id = 1;
@@ -91,6 +91,52 @@ void rightCircumvent(float rot_left = 6.5, float rot_right = 1) {
   both.stop();
 }
 
+void readColor(uint16_t max_black=450) {
+  // Read the light levels (ambient, red, green, blue)
+  if (  !apds.readAmbientLight(ambient_light) ||
+        !apds.readRedLight(red_light) ||
+        !apds.readGreenLight(green_light) ||
+        !apds.readBlueLight(blue_light) ) {
+    Serial.println("Error reading light values");
+  } else {
+//    Serial.print("Ambient: ");
+//    Serial.print(ambient_light);
+//    Serial.print(" Red: ");
+//    Serial.print(red_light);
+//    Serial.print(" Green: ");
+//    Serial.print(green_light);
+//    Serial.print(" Blue: ");
+//    Serial.println(blue_light);
+  }
+
+  if (ambient_light<=max_black) {
+    current_colors[0] = "BLACK";
+  } else {
+    current_colors[0] = "WHITE";
+  }
+
+  // current_colors
+  if ((red_light>green_light) && (red_light>blue_light)) {
+    current_colors[1] = "RED";
+  } else if ((green_light>red_light) && (green_light>blue_light)) {
+    current_colors[1] = "GREEN";
+  } else {
+    current_colors[1] = "BLUE";
+  }
+}
+
+String frontColor(byte mode=1, uint16_t max_black=450) {
+  servoColor.write(0);
+  readColor(max_black);
+  return current_colors[mode];
+}
+
+String groundColor(byte mode=1, uint16_t max_black=450) {
+  servoColor.write(90);
+  readColor(max_black);
+  return current_colors[mode];
+}
+
 void setup () {
   Serial.begin (9600);
 
@@ -103,24 +149,22 @@ void setup () {
   
   // Start running the APDS-9960 light sensor (no interrupts)
   if ( apds.enableLightSensor(false) ) {
-    Serial.println(F("Light sensor is now running"));
+//    Serial.println(F("Light sensor is now running"));
   } else {
-    Serial.println(F("Something went wrong during light sensor init!"));
+//    Serial.println(F("Something went wrong during light sensor init!"));
   }
-  // Wait for initialization and calibration to finish
-  delay(500);
   
   // distance sensor
   ultrassonic.setPins();
 
   // servo to move distance sensor
-  servoDistance.attach(7);
+  servoDistance.attach(52);
   servoDistance.write(90); //0(right) 90(front) 180 (left)
-
+  
   // servo to move color sensor
-  servoColor.attach(0);
-  servoColor.write(0);
-
+  servoColor.attach(50);
+  servoColor.write(90); // 0(front) 90(ground)
+  
   // left motor:
   motorL.hBridge(12, 11, 13);
   motorL.setEncoderPin(2, 4);
@@ -140,6 +184,7 @@ void setup () {
   attachInterrupt(digitalPinToInterrupt(3), interruptR, FALLING);
 
   both.setGyreDegreesRatio(1.5, 90);
+  delay(500);
 
   // screen.setButtons(0, 0, INPUT);
   String options[] = {
@@ -173,6 +218,8 @@ void setup () {
     }
   }
 
+
+  goto lastHall;
   ////////////////////// start movements////////////////////////
   //first section
   Serial.println("first section");
@@ -193,14 +240,41 @@ void setup () {
   Serial.println("last hall");
   reachWall();
   both.turnDegree(turnspeed, 90);
+
+  lastHall:
+    both.together(basespeed, 5.8);
+  /////////////////
+  groundColor();
+  delay(200);
+  
   while (!isRescueArena()) {
-    motorR.walk(basespeed);
-    motorL.walk(basespeed);
+    motorR.walk(30);
+    motorL.walk(30);
   }
   ////////////////////// start rescue////////////////////////
   rescueBlock:
     both.stop();
     rescueArena();
+}
+
+bool isRescueArena() {
+  readColor();
+  return (ambient_light<=1000);
+}
+
+void rescueArena() {
+  both.together(basespeed, 0.1);
+  rightCircumvent(4, 0.8);
+  adjustFrontDistance(120, 10);
+  motorR.walk(turnspeed, 3);
+  debug();
+  reachWall();
+  both.turnDegree(-turnspeed, -90); // more
+  both.together(basespeed, 3);
+  debug();
+  
+  // take down wall
+  debug();
 }
 
 void obLeft() {
@@ -269,20 +343,6 @@ void obRight() {
   }
 }
 
-bool isRescueArena() {
-  return rightDistance() < 20;
-}
-
-void rescueArena() {
-  both.together(basespeed, 0.5);
-  motorL.walk(turnspeed, 2.85);
-  both.stop();
-  reachWall();
-  both.turnDegree(-turnspeed, -90);
-  reachWall();
-  both.turnDegree(-turnspeed, -90);
-  // have take down the 'wall', now start rescue
-}
 
 float customDistance(byte angle=0) {
   servoDistance.write(angle);
@@ -310,58 +370,15 @@ float readDistance() {
   return distance;
 }
 
-void readColor(byte max_black=10) {
-  // Read the light levels (ambient, red, green, blue)
-  if (  !apds.readAmbientLight(ambient_light) ||
-        !apds.readRedLight(red_light) ||
-        !apds.readGreenLight(green_light) ||
-        !apds.readBlueLight(blue_light) ) {
-    Serial.println("Error reading light values");
-  } else {
-    Serial.print("Ambient: ");
-    Serial.print(ambient_light);
-    Serial.print(" Red: ");
-    Serial.print(red_light);
-    Serial.print(" Green: ");
-    Serial.print(green_light);
-    Serial.print(" Blue: ");
-    Serial.println(blue_light);
-    if (ambient_light<=max_black) {
-      current_colors[0] = "BLACK";
-    } else {
-      current_colors[0] = "WHITE";
-    }
-
-    // current_colors
-    if ((red_light>green_light) && (red_light>blue_light)) {
-      current_colors[1] = "RED";
-    } else if ((green_light>red_light) && (green_light>blue_light)) {
-      current_colors[1] = "GREEN";
-    } else {
-      current_colors[1] = "BLUE";
-    }
-  }
-}
-
-String frontColor(byte mode=1) {
-  servoColor.write(0);
-  readColor();
-  return current_colors[mode];
-}
-
-String groundColor(byte mode=1) {
-  servoColor.write(90);
-  readColor();
-  return current_colors[mode];
-}
-
 float degreeToRad(float degrees=0) {
   return (PI*degrees)/180;
 }
 
 void debug() {
   both.stop();
-  while (true) delay(1000);
+  while (true) {
+    delay(1000);
+  }
 }
 
 
