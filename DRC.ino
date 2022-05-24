@@ -25,20 +25,24 @@ void interruptL () {
 
 ////////////////////////////
 // setup variables
-Pushbutton mid_button(0);
-Pushbutton right_button(0);
-Pushbutton left_button(0);
+Pushbutton left_button(A3);
+Pushbutton mid_button(A4);
+Pushbutton right_button(A5);
 
-#define left_led 0
-#define mid_led 0
-#define right_led 0
+
+#define left_led 53 // green
+#define mid_led 51 // yellow
+#define right_led 49 // red
+#define green_led 53
+#define yellow_led 51
+#define red_led 49
 ////////////////////////////
 // static variables
 float basespeed = 80.0;
 float turnspeed = 40.0;
 ////////////////////////////////
 // editable variables
-bool have_right = true;
+bool have_right = false;
 bool have_hall = false;
 bool have_left = false;
 ////////////////////////////////
@@ -51,6 +55,11 @@ uint16_t red_light = 0;
 uint16_t green_light = 0;
 uint16_t blue_light = 0;
 String current_colors[2] = {"WHITE", "RED"}; // {binary_color, RGB_color}
+float small = 0;
+float super_small = 0;
+float big = 0;
+float super_big = 0;
+String checkpoint = "";
 ////////////////////////////////
 void adjustFrontDistance(float speed, float desired_distance, bool stop_ = true) {
   speed = abs(speed);
@@ -80,7 +89,7 @@ void adjustFrontDistance(float speed, float desired_distance, bool stop_ = true)
 
 void reachWall() {
   adjustFrontDistance(100, 2.3);
-
+  both.together(-basespeed, -0.2);
 }
 
 void rightCircumvent(float rot_left = 6.5, float rot_right = 1) {
@@ -136,9 +145,41 @@ String groundColor(byte mode=1, uint16_t max_black=450) {
   return current_colors[mode];
 }
 
+bool isBig(float test_distance) {
+    return (small<test_distance<super_big);
+  }
+
+  bool isSuperBig(float test_distance) {
+    return (test_distance>super_big);
+  }
+
+  bool isSmall(float test_distance) {
+    return (super_small<test_distance<big);
+  }
+
+  bool isSuperSmall(float test_distance) {
+    return (test_distance<=super_small);
+  }
+
 void setup () {
   //////////////////////////////////// setup part ///////////////////////////////////////////////////
   Serial.begin (9600);
+  // setup indication leds
+  pinMode(left_led, OUTPUT);
+  pinMode(mid_led, OUTPUT);
+  pinMode(right_led, OUTPUT);
+  pinMode(green_led, OUTPUT);
+  pinMode(yellow_led, OUTPUT);
+  pinMode(red_led, OUTPUT);
+
+  // setting all leds to low
+  digitalWrite(left_led, LOW);
+  digitalWrite(mid_led, LOW);
+  digitalWrite(right_led, LOW);
+  digitalWrite(green_led, LOW);
+  digitalWrite(yellow_led, LOW);
+  digitalWrite(red_led, LOW);
+  
 
   // left motor:
   motorL.hBridge(12, 11, 13);
@@ -160,11 +201,6 @@ void setup () {
 
   both.setGyreDegreesRatio(1.5, 90);
 
-  // setup indication leds
-  pinMode(left_led, OUTPUT);
-  pinMode(mid_led, OUTPUT);
-  pinMode(right_led, OUTPUT);
-
   // Initialize APDS-9960 (configure I2C and initial values)
   if ( apds.init() ) {
     Serial.println(F("APDS-9960 initialization complete"));
@@ -183,36 +219,46 @@ void setup () {
   ultrassonic.setPins();
 
    // servo to move color sensor
-  servoColor.attach(50);
-  servoColor.write(90); // 0(front) 90(ground)
+  servoColor.attach(52); // 0(front) 90(ground)
+  groundColor();
 
   // servo to move the arm
-  servoArm.attach(0);
+  servoArm.attach(50); // 0(up) 90(ground)
   servoArm.write(0);
+  
 
   // servo to move distance sensor
-  servoDistance.attach(52); //0(right) 90(front) 180 (left)
-  
+  servoDistance.attach(48); //0(right) 90(front) 180 (left)
+
   //////////////////////////////////// actions part ///////////////////////////////////////////////////
-  ////// button wait first obstacle position
-  while(!left_button.isPressed() && !mid_button.isPressed() && !right_button.isPressed());
-  have_left = left_button.isPressed();
-  have_hall = mid_button.isPressed();
-  have_right = right_button.isPressed();
+  // setting all leds to low
+  digitalWrite(green_led, HIGH);
+  digitalWrite(yellow_led, HIGH);
+  digitalWrite(red_led, HIGH);
+  delay(100);
+  digitalWrite(green_led, LOW);
+  digitalWrite(yellow_led, LOW);
+  digitalWrite(red_led, LOW);
+  rightDistance();
+  delay(300);
+  
+  //// button wait first obstacle position
+  while(true) {
+    if (!have_left) {
+      have_left = left_button.isPressed();
+    }
 
-  // set leds to indicate the button worked part1
-  digitalWrite(left_led, have_left);
-  digitalWrite(mid_led, have_hall);
-  digitalWrite(right_led, have_right);
+    if (!have_hall) {
+      have_hall = mid_button.isPressed();
+    }
 
-  ////// button wait second obstacle position
-  while(!left_button.isPressed() && !mid_button.isPressed() && !right_button.isPressed());
-  if (!have_left) {
-    have_left = left_button.isPressed();
-  } else if (!have_hall) {
-    have_hall = mid_button.isPressed();
-  } else if (!have_right) {
-    have_right = right_button.isPressed();
+    if (!have_right) {
+      have_right = right_button.isPressed();
+    }
+    
+    if (have_left || have_hall || have_right) {
+      break;
+    }
   }
 
   // set leds to indicate the button worked part1
@@ -220,86 +266,76 @@ void setup () {
   digitalWrite(mid_led, have_hall);
   digitalWrite(right_led, have_right);
 
-  servoDistance.write(180); // left
-  delay(200);
-  left_distance = leftDistance();
+  // wait to release buttons
+  left_button.waitForRelease();
+  mid_button.waitForRelease();
+  right_button.waitForRelease();
+  ////// button wait second obstacle position
+  while(true) {
+    if (have_left==false) {
+      have_left = left_button.isPressed();
+      if (have_left) { break; }
+    }
 
-  servoDistance.write(90);
+    if (have_hall==false) {
+      have_hall = mid_button.isPressed();
+      if (have_hall) { break; }
+    }
+
+    if (have_right==false) {
+      have_right = right_button.isPressed();
+      if (have_right) { break; }
+    }
+  }
+  
+  // set leds to indicate the button worked part1
+  digitalWrite(left_led, have_left);
+  digitalWrite(mid_led, have_hall);
+  digitalWrite(right_led, have_right);
+
+  //////////////////////////////////// CHECKPOINT part ///////////////////////////////////////////////////
+  servoArm.write(0); // arm up fast
+  right_distance = rightDistance();
+  frontDistance();
   delay(200);
   front_distance = frontDistance();
-
-  servoDistance.write(0);
-  delay(200);
-  right_distance = rightDistance();
-  servoDistance.write(90); // front again
-
-  // adjust
-  float small = 15;
-  float super_small = 7;
-  float big = 22;
-  float super_big = 27;
-  String checkpoint = "";
-
-  bool isBig(float test_distance) {
-    return (small<test_distance<super_big);
-  }
-
-  bool isSuperBig(float test_distance) {
-    return (test_distance>superbig);
-  }
-
-  bool isSmall(float test_distance) {
-    return (sup_small<test_distance<big);
-  }
-
-  bool isSuperSmall(float test_distance) {
-    return (test_distance<=super_small);
-  }
-
-  if ((isSuperSmall(left_distance)) && (isBig(front_distance)) && (isSuperSmall(right_distance))) {
-    checkpoint = "A";
-    goto checkpoint_A;
-  } else if ((isBig(left_distance)) && (isBig(front_distance)) && (isSuperSmall(right_distance))) {
-    checkpoint = "B";
-    goto checkpoint_B;
-  } else if ((isSmall(left_distance)) && (isBig(front_distance)) && (isSuperSmall(right_distance))) {
-    checkpoint = "C";
-    goto checkpoint_C;
-  } else if ((isSuperSmall(left_distance)) && (isSuperSmall(front_distance)) && (isBig(right_distance))) {
-    checkpoint = "D";
+  if ((front_distance<=7) && (10<right_distance<20)) {
     goto checkpoint_D;
-  } else if ((isSuperSmall(left_distance)) && (isSuperBig(front_distance)) && (isSuperSmall(right_distance))) {
-    checkpoint = "E";
-    goto checkpoint_E;
   }
 
+  if ((37<front_distance<80) && (right_distance<7)) {
+    goto checkpoint_A;
+  }
+
+  if ((front_distance<8) && (right_distance<8)) {
+    goto checkpoint_C;
+  }
   ////////////////////// start robot movements////////////////////////
+  
   //first section
   Serial.println("first section");
   checkpoint_A:
-    reachWall();
+    reachWall();  
   
   // going down first stair
   both.turnDegree(-turnspeed, -90);
   checkpoint_B:
     reachWall();
-  both.together(-basespeed, -0.07);
-  both.turnDegree(-turnspeed, -90);
   
   checkpoint_C:
-    if (have_left || ((have_hall==true) && (have_right==false))) {
+    both.turnDegree(-turnspeed, -90);
+    if (have_left) {
       obLeft();
     } else {
       obRight();
     }
 
-  
-  reachWall();
-  both.turnDegree(turnspeed, 90);
 
   checkpoint_D:
-    Serial.println("last hall");
-    both.together(basespeed, 5.8);
+    reachWall();
+  both.turnDegree(turnspeed, 90);
+  Serial.println("last hall");
+  both.together(basespeed, 5.8);
   /////////////////
 
   checkpoint_E:
@@ -317,8 +353,7 @@ void setup () {
 }
 
 bool isRescueArena() {
-  readColor();
-  return (ambient_light<=1000);
+  return (groundColor()=="BLUE");
 }
 
 void rescueArena() {
@@ -344,13 +379,24 @@ void rescueArena() {
     rotations+=rate;
   }
   both.stop();
-  downArm();
-  
-  debug();
+  armDOWN();
+
+} 
+
+void armDOWN() {
+  Serial.println("arm going down");
+  for (int i=0; i<=servoArm.read(); i++) {
+    servoArm.write(i);
+    delay(12);
+  }
 }
 
-void downArm() {
-  servoArm.write(0);
+void armUP() {
+    Serial.println("arm going up");
+    for (int i=servoArm.read(); i>=0; i--) {
+      servoArm.write(i);
+      delay(12);
+    }
 }
 
 void obLeft() {
@@ -458,5 +504,4 @@ void debug() {
 
 
 void loop () {
-
 }
