@@ -87,9 +87,11 @@ void adjustFrontDistance(float speed, float desired_distance, bool stop_ = true)
   }
 }
 
-void reachWall() {
+void reachWall(bool go_back=true) {
   adjustFrontDistance(100, 2.3);
-  both.together(-basespeed, -0.2);
+  if (go_back) {
+    both.together(-basespeed, -0.2);
+  }
 }
 
 void rightCircumvent(float rot_left = 6.5, float rot_right = 1) {
@@ -320,9 +322,10 @@ void setup () {
   // going down first stair
   both.turnDegree(-turnspeed, -90);
   checkpoint_B:
-    reachWall();
+    reachWall(false);
   
   checkpoint_C:
+    both.together(-basespeed, -0.2);
     both.turnDegree(-turnspeed, -90);
     if (have_left) {
       obLeft();
