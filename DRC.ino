@@ -79,8 +79,16 @@ void adjustFrontDistance(float speed, float desired_distance, bool stop_ = true)
 void reachWall(bool go_back = true) {
   adjustFrontDistance(100, 2.3);
   if (go_back) {
-    both.together(-basespeed, -0.1);
+    both.together(-basespeed, -0.07);
   }
+}
+
+void alignBack(float timer_going_back=2000, float timer_stop=300) {
+  motorR.walk(-basespeed);
+  motorL.walk(-basespeed);
+  delay(timer_going_back);
+  both.stop();
+  delay(timer_stop);
 }
 
 void rightCircumvent(float rot_left = 6.5, float rot_right = 1) {
@@ -91,37 +99,37 @@ void rightCircumvent(float rot_left = 6.5, float rot_right = 1) {
 }
 
 void readColor(uint16_t max_black = 450) {
-//  // Read the light levels (ambient, red, green, blue)
-//  if (  !apds.readAmbientLight(ambient_light) ||
-//        !apds.readRedLight(red_light) ||
-//        !apds.readGreenLight(green_light) ||
-//        !apds.readBlueLight(blue_light) ) {
-//    Serial.println("Error reading light values");
-//  } else {
-//    //    Serial.print("Ambient: ");
-//    //    Serial.print(ambient_light);
-//    //    Serial.print(" Red: ");
-//    //    Serial.print(red_light);
-//    //    Serial.print(" Green: ");
-//    //    Serial.print(green_light);
-//    //    Serial.print(" Blue: ");
-//    //    Serial.println(blue_light);
-//  }
-//
-//  if (ambient_light <= max_black) {
-//    current_colors[0] = "BLACK";
-//  } else {
-//    current_colors[0] = "WHITE";
-//  }
-//
-//  // current_colors
-//  if ((red_light > green_light) && (red_light > blue_light)) {
-//    current_colors[1] = "RED";
-//  } else if ((green_light > red_light) && (green_light > blue_light)) {
-//    current_colors[1] = "GREEN";
-//  } else {
-//    current_colors[1] = "BLUE";
-//  }
+  //  // Read the light levels (ambient, red, green, blue)
+  //  if (  !apds.readAmbientLight(ambient_light) ||
+  //        !apds.readRedLight(red_light) ||
+  //        !apds.readGreenLight(green_light) ||
+  //        !apds.readBlueLight(blue_light) ) {
+  //    Serial.println("Error reading light values");
+  //  } else {
+  //    //    Serial.print("Ambient: ");
+  //    //    Serial.print(ambient_light);
+  //    //    Serial.print(" Red: ");
+  //    //    Serial.print(red_light);
+  //    //    Serial.print(" Green: ");
+  //    //    Serial.print(green_light);
+  //    //    Serial.print(" Blue: ");
+  //    //    Serial.println(blue_light);
+  //  }
+  //
+  //  if (ambient_light <= max_black) {
+  //    current_colors[0] = "BLACK";
+  //  } else {
+  //    current_colors[0] = "WHITE";
+  //  }
+  //
+  //  // current_colors
+  //  if ((red_light > green_light) && (red_light > blue_light)) {
+  //    current_colors[1] = "RED";
+  //  } else if ((green_light > red_light) && (green_light > blue_light)) {
+  //    current_colors[1] = "GREEN";
+  //  } else {
+  //    current_colors[1] = "BLUE";
+  //  }
 }
 
 String frontColor(byte mode = 1, uint16_t max_black = 450) {
@@ -156,13 +164,32 @@ bool isCube() {
   frontColor();
   pinMode(A7, INPUT);
   float value = analogRead(A7);
-  Serial.println(value<=100);
-  return (value<=100);
+  Serial.println(value <= 100);
+  return (value <= 100);
 }
 
 bool isCircle() {
   groundColor();
-  return true;
+  pinMode(A7, INPUT);
+  float value = analogRead(A7);
+  Serial.println(value <= 100);
+  return (value <= 100);
+}
+
+void armDOWN(float timer_speed = 12) {
+  Serial.println("arm going down");
+  for (int i = 0; i <= 90; i++) {
+    servoArm.write(i);
+    delay(timer_speed);
+  }
+}
+
+void armUP(float timer_speed = 15) {
+  Serial.println("arm going up");
+  for (int i = 90; i >= 0; i--) {
+    servoArm.write(i);
+    delay(timer_speed);
+  }
 }
 
 void setup () {
@@ -171,9 +198,9 @@ void setup () {
   while (! Serial) {
     delay(1);
   }
-  
+
   Serial.println("reiniciou");
-  
+
   // setup indication leds
   pinMode(left_led, OUTPUT);
   pinMode(mid_led, OUTPUT);
@@ -208,29 +235,30 @@ void setup () {
   motorR.setPins();
   motorR.stop();
   attachInterrupt(digitalPinToInterrupt(3), interruptR, FALLING);
-
-  both.setGyreDegreesRatio(1.5, 90);
   
+  both.setGyreDegreesRatio(1.5, 90);
+
   // distance sensor
   ultrassonic.setPins();
 
   // servo to move color sensor
   servoColor.attach(52); // 0(front) 90(ground)
   frontColor();
-  
+
   // servo to move the arm
   servoArm.attach(48); // 0(up) 90(ground)
   servoArm.write(0);
 
   // servo to move distance sensor
   servoDistance.attach(50); //0(right) 90(front) 180 (left)
-  
+
   // for distance sensor
   if (!lox.begin()) {
     Serial.println(F("Failed to boot VL53L0X"));
-    while(1);
+    while (1);
   }
-  
+
+
   //////////////////////////////////// actions part ///////////////////////////////////////////////////
   // setting all leds to low
   digitalWrite(green_led, HIGH);
@@ -243,7 +271,7 @@ void setup () {
   frontDistance();
   rightDistance();
   delay(300);
-  
+
   //// button wait first obstacle position
   while (true) {
     if (!have_left) {
@@ -307,12 +335,16 @@ void setup () {
 
   //////////////////////////////////// CHECKPOINT part ///////////////////////////////////////////////////
   servoArm.write(0); // arm up fast
+  // all set to low again to maybe debug with led later
+  digitalWrite(left_led, LOW);
+  digitalWrite(mid_led, LOW);
+  digitalWrite(right_led, LOW);
   right_distance = rightDistance();
   frontDistance();
   delay(200);
   front_distance = frontDistance();
 
-  if (front_distance<=135) {
+  if (front_distance <= 135) {
     goto checkpoint_A;
   }
 
@@ -320,12 +352,13 @@ void setup () {
     goto checkpoint_C;
   }
 
-  
+
   ////////////////////// start robot movements////////////////////////
-  checkpoint_A:
-    //first section
-    Serial.println("first section");
-    reachWall();
+checkpoint_A:
+  digitalWrite(red_led, HIGH);
+  //first section
+  Serial.println("first section");
+  reachWall();
 
   // going down first stair
   both.turnDegree(-turnspeed, -90);
@@ -347,64 +380,66 @@ void setup () {
   /////////////////
 
   Serial.println("pre-rescue");
-  checkpoint_C:
-    while (!isRescueArena()) {
-      motorR.walk(30);
-      motorL.walk(30);
-    }
-  ////////////////////// start rescue//////////////////// ////
+checkpoint_C:
+  rightDistance();
+  delay(200);
+  digitalWrite(green_led, HIGH);
+  while (!isRescueArena()) {
+    motorR.walk(30);
+    motorL.walk(30);
+  }
+  ////////////////////// start rescue//////////////////// ////         
   both.stop();
   rescueArena();
 }
 
 bool isRescueArena() {
-//  return (groundColor() == "BLUE");
-  return rightDistance()>=15;
+  //  return (groundColor() == "BLUE");
+  return rightDistance() >= 15;
 }
 
 void rescueArena() {
   both.together(basespeed, 0.3);
   rightCircumvent(4, 0.8);
-  adjustFrontDistance(120, 10);
-  motorR.walk(turnspeed, 3);
+  frontDistance();
+  delay(100);
   reachWall();
-  both.turnDegree(-turnspeed, -90); // more
+  both.turnDegree(-turnspeed, -90);
+
+  reachWall();
+  
+  both.turnDegree(-turnspeed, -95); // more
+  alignBack(); // align in the back
   both.together(basespeed, 3);
   both.turnDegree(turnspeed, 90);
-  both.together(basespeed, 3);
+  both.together(basespeed, 2);
   both.turnDegree(turnspeed, 90);
-  both.together(basespeed, 1.5);
-  float start_time = millis();
-  float find_time = 0;
-  
-  armDOWN();
-  groundColor();
 
-  while(true || frontDistance()>=120) { // (have no circle) || too far away
-    motorR.walk(-basespeed);
-    motorL.walk(-basespeed);
-  }
-  both.stop();
-  both.together(basespeed, 0.5);
-  both.turnDegree(turnspeed, 22);
-  armUP();
-  both.turnDegree(-turnspeed, 22);
-  
-}
-
-void armDOWN() {
-  Serial.println("arm going down");
-  for (int i = 0; i <= 90; i++) {
-    servoArm.write(i);
-    delay(12);
-  }
-}
-
-void armUP() {
-  Serial.println("arm going up");
-  for (int i = 90; i >= 0; i--) {
-    servoArm.write(i);
-    delay(12);
+  float align_cube_distance = 30; // distance before get cube
+  float align_cube_rotations = 0.55; // rotations before get cube
+  float jump = 7;
+  float current_distance = frontDistance() - jump;
+  float degrees_correction = 20;
+  float rotations_correction = 1;
+  while (true) {
+    adjustFrontDistance(basespeed, align_cube_distance);
+    both.together(basespeed, align_cube_rotations);
+    both.turnDegree(turnspeed, degrees_correction);
+    armDOWN(7);
+    both.together(-basespeed, -rotations_correction);
+    both.turnDegree(-turnspeed, -degrees_correction);
+    both.turnDegree(turnspeed, 180);
+    adjustFrontDistance(basespeed, current_distance);
+    current_distance -= jump;
+    armUP(7);
+    rightDistance();
+    delay(100);
+    right_distance = rightDistance();
+    both.turnDegree(turnspeed, 90);
+    frontDistance();
+    delay(100);
+    adjustFrontDistance(basespeed, right_distance-3); // VAI DE 3 EM 3 CENTÍMETROS
+    both.turnDegree(turnspeed, 90);
   }
 }
 
@@ -501,13 +536,13 @@ float readDistance() {
   lox.rangingTest(&measure, false); // pass in 'true' to get debug data printout!
 
   if (measure.RangeStatus != 4) {  // phase failures have incorrect data
-    distance = measure.RangeMilliMeter/10;
+    distance = measure.RangeMilliMeter / 10;
   } else {
     Serial.println(" out of range ");
     distance = 200;
   }
 
-  return (distance-2);
+  return (distance - 2);
 }
 
 float degreeToRad(float degrees = 0) {
