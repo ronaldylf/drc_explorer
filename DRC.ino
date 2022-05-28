@@ -3,16 +3,16 @@
 #include <My_ultrassonic.h>
 #include <Servo.h>
 #include <Wire.h>
-#include <SparkFun_APDS9960.h>
+//#include <SparkFun_APDS9960.h>
 #include <Pushbutton.h>
 #include "Adafruit_VL53L0X.h"
-Adafruit_VL53L0X lox = Adafruit_VL53L0X();
+
 
 Servo servoDistance;
 Servo servoColor;
 Servo servoArm;
 
-SparkFun_APDS9960 apds = SparkFun_APDS9960();
+//SparkFun_APDS9960 apds = SparkFun_APDS9960();
 
 DC_motor_controller motorR;
 DC_motor_controller motorL;
@@ -24,7 +24,7 @@ void interruptR () {
 void interruptL () {
   motorL.isr();
 }
-
+Adafruit_VL53L0X lox = Adafruit_VL53L0X();
 ////////////////////////////
 // setup variables
 Pushbutton left_button(A0);
@@ -66,22 +66,9 @@ String checkpoint = "";
 void adjustFrontDistance(float speed, float desired_distance, bool stop_ = true) {
   speed = abs(speed);
   desired_distance = abs(desired_distance);
-  front_distance = frontDistance();
-  bool go_forward = front_distance > desired_distance;
-  bool go_backward = front_distance < desired_distance;
-
-  if (!go_forward && !go_backward) {
-    // in this case front_distance==desired_distance
-  } else if (go_forward) {
-    while (frontDistance() > desired_distance) {
-      motorR.walk(speed);
-      motorL.walk(speed);
-    }
-  } else if (go_backward) {
-    while (frontDistance() < desired_distance) {
-      motorR.walk(-speed);
-      motorL.walk(-speed);
-    }
+  while (frontDistance() > desired_distance) {
+    motorR.walk(speed);
+    motorL.walk(speed);
   }
 
   if (stop_) {
@@ -104,37 +91,37 @@ void rightCircumvent(float rot_left = 6.5, float rot_right = 1) {
 }
 
 void readColor(uint16_t max_black = 450) {
-  // Read the light levels (ambient, red, green, blue)
-  if (  !apds.readAmbientLight(ambient_light) ||
-        !apds.readRedLight(red_light) ||
-        !apds.readGreenLight(green_light) ||
-        !apds.readBlueLight(blue_light) ) {
-    Serial.println("Error reading light values");
-  } else {
-    //    Serial.print("Ambient: ");
-    //    Serial.print(ambient_light);
-    //    Serial.print(" Red: ");
-    //    Serial.print(red_light);
-    //    Serial.print(" Green: ");
-    //    Serial.print(green_light);
-    //    Serial.print(" Blue: ");
-    //    Serial.println(blue_light);
-  }
-
-  if (ambient_light <= max_black) {
-    current_colors[0] = "BLACK";
-  } else {
-    current_colors[0] = "WHITE";
-  }
-
-  // current_colors
-  if ((red_light > green_light) && (red_light > blue_light)) {
-    current_colors[1] = "RED";
-  } else if ((green_light > red_light) && (green_light > blue_light)) {
-    current_colors[1] = "GREEN";
-  } else {
-    current_colors[1] = "BLUE";
-  }
+//  // Read the light levels (ambient, red, green, blue)
+//  if (  !apds.readAmbientLight(ambient_light) ||
+//        !apds.readRedLight(red_light) ||
+//        !apds.readGreenLight(green_light) ||
+//        !apds.readBlueLight(blue_light) ) {
+//    Serial.println("Error reading light values");
+//  } else {
+//    //    Serial.print("Ambient: ");
+//    //    Serial.print(ambient_light);
+//    //    Serial.print(" Red: ");
+//    //    Serial.print(red_light);
+//    //    Serial.print(" Green: ");
+//    //    Serial.print(green_light);
+//    //    Serial.print(" Blue: ");
+//    //    Serial.println(blue_light);
+//  }
+//
+//  if (ambient_light <= max_black) {
+//    current_colors[0] = "BLACK";
+//  } else {
+//    current_colors[0] = "WHITE";
+//  }
+//
+//  // current_colors
+//  if ((red_light > green_light) && (red_light > blue_light)) {
+//    current_colors[1] = "RED";
+//  } else if ((green_light > red_light) && (green_light > blue_light)) {
+//    current_colors[1] = "GREEN";
+//  } else {
+//    current_colors[1] = "BLUE";
+//  }
 }
 
 String frontColor(byte mode = 1, uint16_t max_black = 450) {
@@ -165,9 +152,28 @@ bool isSuperSmall(float test_distance) {
   return (test_distance <= super_small);
 }
 
+bool isCube() {
+  frontColor();
+  pinMode(A7, INPUT);
+  float value = analogRead(A7);
+  Serial.println(value<=100);
+  return (value<=100);
+}
+
+bool isCircle() {
+  groundColor();
+  return true;
+}
+
 void setup () {
   //////////////////////////////////// setup part ///////////////////////////////////////////////////
   Serial.begin(9600);
+  while (! Serial) {
+    delay(1);
+  }
+  
+  Serial.println("reiniciou");
+  
   // setup indication leds
   pinMode(left_led, OUTPUT);
   pinMode(mid_led, OUTPUT);
@@ -204,43 +210,27 @@ void setup () {
   attachInterrupt(digitalPinToInterrupt(3), interruptR, FALLING);
 
   both.setGyreDegreesRatio(1.5, 90);
-
-
-  Serial.println("configurando apds");
-  // Initialize APDS-9960 (configure I2C and initial values)
-  if ( apds.init() ) {
-    Serial.println(F("APDS-9960 initialization complete"));
-  } else {
-    Serial.println(F("Something went wrong during APDS-9960 init!"));
-  }
-
-  // Start running the APDS-9960 light sensor (no interrupts)
-  if ( apds.enableLightSensor(false) ) {
-    Serial.println(F("Light sensor is now running"));
-  } else {
-    Serial.println(F("Something went wrong during light sensor init!"));
-  }
-
+  
   // distance sensor
   ultrassonic.setPins();
 
   // servo to move color sensor
   servoColor.attach(52); // 0(front) 90(ground)
-  groundColor();
-
+  frontColor();
+  
   // servo to move the arm
   servoArm.attach(48); // 0(up) 90(ground)
   servoArm.write(0);
 
   // servo to move distance sensor
   servoDistance.attach(50); //0(right) 90(front) 180 (left)
-
+  
   // for distance sensor
   if (!lox.begin()) {
     Serial.println(F("Failed to boot VL53L0X"));
     while(1);
   }
-
+  
   //////////////////////////////////// actions part ///////////////////////////////////////////////////
   // setting all leds to low
   digitalWrite(green_led, HIGH);
@@ -253,7 +243,7 @@ void setup () {
   frontDistance();
   rightDistance();
   delay(300);
-
+  
   //// button wait first obstacle position
   while (true) {
     if (!have_left) {
@@ -277,6 +267,10 @@ void setup () {
   digitalWrite(left_led, have_left);
   digitalWrite(mid_led, have_hall);
   digitalWrite(right_led, have_right);
+
+  if (!have_left && have_hall && !have_right) {
+    have_left = true;
+  }
 
   // wait to release buttons
   left_button.waitForRelease();
@@ -317,30 +311,26 @@ void setup () {
   frontDistance();
   delay(200);
   front_distance = frontDistance();
-  if ((front_distance <= 7) && (10 < right_distance < 20)) {
-    goto checkpoint_D;
-  }
 
-  if ((37 < front_distance < 80) && (right_distance < 7)) {
+  if (front_distance<=135) {
     goto checkpoint_A;
   }
 
-  if ((front_distance < 8) && (right_distance < 8)) {
+  if ((front_distance >= 150)) {
     goto checkpoint_C;
   }
-  ////////////////////// start robot movements////////////////////////
 
-  //first section
-  Serial.println("first section");
-checkpoint_A:
-  reachWall();
+  
+  ////////////////////// start robot movements////////////////////////
+  checkpoint_A:
+    //first section
+    Serial.println("first section");
+    reachWall();
 
   // going down first stair
   both.turnDegree(-turnspeed, -90);
-checkpoint_B:
   reachWall(false);
 
-checkpoint_C:
   both.together(-basespeed, -0.2);
   both.turnDegree(-turnspeed, -90);
   if (have_left) {
@@ -350,23 +340,19 @@ checkpoint_C:
   }
 
 
-checkpoint_D:
   reachWall();
   both.turnDegree(turnspeed, 90);
   Serial.println("last hall");
   both.together(basespeed, 5.8);
   /////////////////
 
-checkpoint_E:
   Serial.println("pre-rescue");
-  groundColor();
-  delay(200);
-
-  while (!isRescueArena()) {
-    motorR.walk(30);
-    motorL.walk(30);
-  }
-  ////////////////////// start rescue////////////////////////
+  checkpoint_C:
+    while (!isRescueArena()) {
+      motorR.walk(30);
+      motorL.walk(30);
+    }
+  ////////////////////// start rescue//////////////////// ////
   both.stop();
   rescueArena();
 }
@@ -377,7 +363,7 @@ bool isRescueArena() {
 }
 
 void rescueArena() {
-  both.together(basespeed, 0.1);
+  both.together(basespeed, 0.3);
   rightCircumvent(4, 0.8);
   adjustFrontDistance(120, 10);
   motorR.walk(turnspeed, 3);
@@ -387,8 +373,10 @@ void rescueArena() {
   both.turnDegree(turnspeed, 90);
   both.together(basespeed, 3);
   both.turnDegree(turnspeed, 90);
-  both.together(basespeed, 3);
-  both.turnDegree(turnspeed, 90);
+  both.together(basespeed, 1.5);
+  float start_time = millis();
+  float find_time = 0;
+  
   armDOWN();
   groundColor();
 
@@ -406,7 +394,7 @@ void rescueArena() {
 
 void armDOWN() {
   Serial.println("arm going down");
-  for (int i = 0; i <= servoArm.read(); i++) {
+  for (int i = 0; i <= 90; i++) {
     servoArm.write(i);
     delay(12);
   }
@@ -414,7 +402,7 @@ void armDOWN() {
 
 void armUP() {
   Serial.println("arm going up");
-  for (int i = servoArm.read(); i >= 0; i--) {
+  for (int i = 90; i >= 0; i--) {
     servoArm.write(i);
     delay(12);
   }
@@ -507,25 +495,19 @@ float leftDistance() {
 }
 
 float readDistance() {
-//  float distance = ultrassonic.getDistance_cm();
-//  Serial.println(distance);
-//  return distance;
-
   float distance = 0;
-
   VL53L0X_RangingMeasurementData_t measure;
-    
   Serial.print("Reading a measurement... ");
   lox.rangingTest(&measure, false); // pass in 'true' to get debug data printout!
 
   if (measure.RangeStatus != 4) {  // phase failures have incorrect data
     distance = measure.RangeMilliMeter/10;
-    
   } else {
     Serial.println(" out of range ");
     distance = 200;
   }
-  return distance;
+
+  return (distance-2);
 }
 
 float degreeToRad(float degrees = 0) {
