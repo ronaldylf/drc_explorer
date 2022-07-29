@@ -51,14 +51,17 @@ String colors[2] = {"WHITE", "RED"}; // {binary_color, RGB_color}
 void adjustFrontDistance(float speed, float desired_distance, bool stop_ = true) {
   speed = abs(speed);
   desired_distance = abs(desired_distance);
-  while ((frontDistance() > desired_distance * 0.95)) {
-    motorR.walk(speed);
-    motorL.walk(speed);
-  }
-
-  while ((frontDistance() > desired_distance)) {
-    motorR.walk(speed * 0.3);
-    motorL.walk(speed * 0.3);
+  float current_distance = frontDistance();
+  if (current_distance>desired_distance) {
+    while ((frontDistance() > desired_distance)) {
+      motorR.walk(speed);
+      motorL.walk(speed);
+    }
+  } else if (current_distance<desired_distance) {
+    while ((frontDistance() < desired_distance)) {
+      motorR.walk(-speed);
+      motorL.walk(-speed);
+    }
   }
 
   if (stop_) {
@@ -73,12 +76,13 @@ void reachWall(bool go_back = true) {
   }
 }
 
-void alignBack(byte intertia_time=300) {
+void alignBack(byte intertia_time=1000) {
   const byte button = 7;
+  const byte speed = 100;
   pinMode(button, INPUT_PULLUP);
   while(digitalRead(button)) {
-    motorR.walk(-60);
-    motorL.walk(-60);
+    motorR.walk(-speed);
+    motorL.walk(-speed);
   }
   delay(intertia_time);
   both.stop();
@@ -91,44 +95,58 @@ void rightCircumvent(float rot_left = 6.5, float rot_right = 1) {
   both.stop();
 }
 
-void readColor(uint16_t max_black = 450) {
-  String current_color = "BRANCO";
-  byte red_margin = 0.8;
-  byte green_margin = 0.8;
-  byte blue_margin = 0.8;
-
+String readColor(int max_black = 1) {
   uint16_t ambient = 0;
-  uint16_t r = 0;
-  uint16_t g = 0;
-  uint16_t b = 0;
-
-  uint16_t possible_r;
-  uint16_t possible_g;
-  uint16_t possible_b;
-
+  uint16_t red = 0;
+  uint16_t green = 0;
+  uint16_t blue = 0;
   apds.readAmbientLight(ambient);
-  apds.readRedLight(r);
-  apds.readGreenLight(g);
-  apds.readBlueLight(b);
+  apds.readRedLight(red);
+  apds.readGreenLight(green);
+  apds.readBlueLight(blue);
+  
+  String current_color = "WHITE";
+  float red_margin = 0.85; float possible_r;
+  float green_margin = 0.72; float possible_g;
+  float blue_margin = 0.85; float possible_b;
+  
+  float a = float(ambient);
+  float r = float(red);
+  float g = float(green);
+  float b = float(blue);
+
+//  Serial.print("a: "+String(a)+" ");
+//  Serial.print("r: "+String(r)+" ");
+//  Serial.print("g: "+String(g)+" ");
+//  Serial.print("b: "+String(b)+"");
+//  Serial.println();
 
   possible_r = r * red_margin;
   possible_g = g * green_margin;
   possible_b = b * blue_margin;
-  if (r > possible_g && r > possible_b) {
+  if (possible_r > g && possible_r > b) {
     current_color = "RED";
+  } else if (possible_g > r && possible_g > b) {
+    current_color = "GREEN";
+  } else if (possible_b > r && possible_b > g) {
+    current_color = "BLUE";
   }
+
+  if (r<=max_black && g<=max_black && b<=max_black) {
+    current_color = "BLACK";
+  }
+
+  return current_color;
 }
 
-String frontColor(byte mode = 1, uint16_t max_black = 450) {
+String frontColor() {
   ServoColor.write(90);
-  readColor(max_black);
-  return colors[mode];
+  return readColor();
 }
 
-String groundColor(byte mode = 1, uint16_t max_black = 450) {
+String groundColor() {
   ServoColor.write(180);
-  readColor(max_black);
-  return colors[mode];
+  return readColor();
 }
 
 
@@ -171,7 +189,6 @@ void getCube() {
     motorR.walk(-basespeed);
     motorL.walk(-basespeed);
   }
-  debug();
 }
 
 void setup () {
@@ -204,7 +221,7 @@ void setup () {
   motorR.stop();
   attachInterrupt(digitalPinToInterrupt(3), interruptR, FALLING);
 
-  both.setGyreDegreesRatio(1.5, 90);
+  both.setGyreDegreesRatio(1.4, 90);
 
   // servo to move color sensor
   ServoColor.attach(42); // 90(front) 180(ground)
@@ -216,11 +233,7 @@ void setup () {
   Gear.attach(44); // 180 (aberta) 0 (fechada)
   armAway();
 
-  delay(1000);
-  //getCube();
-  alignBack();
-  debug();
-
+  
   // servo to move distance sensor
   ServoDistance.attach(50); //0(right) 90(front) 180 (left)
   /*
@@ -303,10 +316,16 @@ void setup () {
 
   // indicate the button worked part2
 
-  have_right = false;   // remove all after tests
-  have_hall = false;
-  have_left = true;
-  //////////////////////////////////// CHECKPOINT part ///////////////////////////////////////////////////
+  bool debug_mode = true; // debug mode
+  if (debug_mode) {
+//    Serial.println(frontDistance()); debug();
+    RescueProcess();
+    debug();
+  }
+
+  have_right = true;   // remove all after tests
+  have_hall = true;
+  have_left = false;  //////////////////////////////////// CHECKPOINT part ///////////////////////////////////////////////////
   front_distance = frontDistance();
 
   if (front_distance < 140) {
@@ -345,8 +364,8 @@ checkpoint_C:
   rightDistance();
   delay(200);
   while (!isRescueArena()) {
-    motorR.walk(30);
-    motorL.walk(30);
+    motorR.walk(50);
+    motorL.walk(50);
   }
   ////////////////////// start rescue//////////////////// ////
   both.stop();
@@ -359,25 +378,40 @@ bool isRescueArena() {
 }
 
 void RescueProcess() {
+  basespeed = 60;
+  turnspeed = 40;
+  goto debugBlock;
   both.together(basespeed, 0.3);
   rightCircumvent(4.2, 0.84);
+  debugBlock: Serial.println("starting debugBlock");
   frontDistance();
   delay(100);
   reachWall();
-  both.turnDegree(-turnspeed, -90);
+  both.turnDegree(-turnspeed, -105);
 
-  reachWall();
-
-  both.turnDegree(-turnspeed, -95); // more
-  alignBack(); // align in the back
+  ///////////////
+  both.together(basespeed, 0.41);
+  both.turnDegree(-turnspeed, -95);
+  alignBack();
   both.together(basespeed, 3);
   both.turnDegree(turnspeed, 90);
-  adjustFrontDistance(basespeed, 3);
-  both.turnDegree(turnspeed, 90);
+  reachWall();
+  adjustFrontDistance(basespeed, 3.8);
+  both.turnDegree(turnspeed, 95);
 
   // go to cube
+  while(frontColor()!="RED") {
+    motorR.walk(basespeed);
+    motorL.walk(basespeed);
+  }
 
-  // get cube
+  adjustFrontDistance(basespeed, 28);
+  getCube();
+
+  while(true) {
+    motorR.walk(-basespeed);
+    motorL.walk(-basespeed);
+  }
 }
 
 void obLeft() {
@@ -469,13 +503,10 @@ float leftDistance() {
 float readDistance() {
   float distance = 0;
   VL53L0X_RangingMeasurementData_t measure;
-  Serial.print("Reading a measurement... ");
   lox.rangingTest(&measure, false); // pass in 'true' to get debug data printout!
-
   if (measure.RangeStatus != 4) {  // phase failures have incorrect data
     distance = measure.RangeMilliMeter / 10;
   } else {
-    Serial.println(" out of range ");
     distance = 200;
   }
 
