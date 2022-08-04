@@ -11,7 +11,6 @@ Servo ServoColor;
 /////////// to get cube
 Servo BaseArm;
 Servo MidArm;
-Servo Gear;
 //////////
 
 SparkFun_APDS9960 apds = SparkFun_APDS9960();
@@ -47,17 +46,19 @@ float front_distance = 0;
 float left_distance = 0;
 float right_distance = 0;
 String colors[2] = {"WHITE", "RED"}; // {binary_color, RGB_color}
+byte pin_base_arm = 0;
+byte pin_mid_arm = 0;
 ////////////////////////////////
 void adjustFrontDistance(float speed, float desired_distance, bool stop_ = true) {
   speed = abs(speed);
   desired_distance = abs(desired_distance);
   float current_distance = frontDistance();
-  if (current_distance>desired_distance) {
+  if (current_distance > desired_distance) {
     while ((frontDistance() > desired_distance)) {
       motorR.walk(speed);
       motorL.walk(speed);
     }
-  } else if (current_distance<desired_distance) {
+  } else if (current_distance < desired_distance) {
     while ((frontDistance() < desired_distance)) {
       motorR.walk(-speed);
       motorL.walk(-speed);
@@ -76,11 +77,11 @@ void reachWall(bool go_back = true) {
   }
 }
 
-void alignBack(byte intertia_time=1000) {
+void alignBack(byte intertia_time = 1000) {
   const byte button = 7;
   const byte speed = 100;
   pinMode(button, INPUT_PULLUP);
-  while(digitalRead(button)) {
+  while (digitalRead(button)) {
     motorR.walk(-speed);
     motorL.walk(-speed);
   }
@@ -104,22 +105,22 @@ String readColor(int max_black = 1) {
   apds.readRedLight(red);
   apds.readGreenLight(green);
   apds.readBlueLight(blue);
-  
+
   String current_color = "WHITE";
   float red_margin = 0.85; float possible_r;
   float green_margin = 0.72; float possible_g;
   float blue_margin = 0.85; float possible_b;
-  
+
   float a = float(ambient);
   float r = float(red);
   float g = float(green);
   float b = float(blue);
 
-//  Serial.print("a: "+String(a)+" ");
-//  Serial.print("r: "+String(r)+" ");
-//  Serial.print("g: "+String(g)+" ");
-//  Serial.print("b: "+String(b)+"");
-//  Serial.println();
+  //  Serial.print("a: "+String(a)+" ");
+  //  Serial.print("r: "+String(r)+" ");
+  //  Serial.print("g: "+String(g)+" ");
+  //  Serial.print("b: "+String(b)+"");
+  //  Serial.println();
 
   possible_r = r * red_margin;
   possible_g = g * green_margin;
@@ -132,7 +133,7 @@ String readColor(int max_black = 1) {
     current_color = "BLUE";
   }
 
-  if (r<=max_black && g<=max_black && b<=max_black) {
+  if (r <= max_black && g <= max_black && b <= max_black) {
     current_color = "BLACK";
   }
 
@@ -140,7 +141,7 @@ String readColor(int max_black = 1) {
 }
 
 String frontColor() {
-  ServoColor.write(90);
+  ServoColor.write(100);
   return readColor();
 }
 
@@ -150,45 +151,31 @@ String groundColor() {
 }
 
 
-bool isCube() {
-  frontColor();
-  pinMode(A7, INPUT);
-  float value = analogRead(A7);
-  Serial.println(value <= 100);
-  return (value <= 100);
-}
-
-bool isCircle() {
-  groundColor();
-  pinMode(A7, INPUT);
-  float value = analogRead(A7);
-  Serial.println(value <= 100);
-  return (value <= 100);
-}
-
-void armDOWN(float timer_speed = 12) {
-
-}
-
-void armUP(float timer_speed = 15) {
-
-}
-
 void armAway() {
+  lockArms();
   BaseArm.write(0);
-  MidArm.write(20);
+  MidArm.write(90);
+  unlockArms();
+}
+
+void lockArms() {
+  pin_base_arm = 48;
+  pin_mid_arm = 46;
+  BaseArm.attach(pin_base_arm); // 0(super back) 180(super front)
+  MidArm.attach(pin_mid_arm); // 0 (super back), 180 (super front)
+}
+
+void unlockArms() {
+  delay(1000);
+  BaseArm.detach();
+  MidArm.detach();
 }
 
 void getCube() {
-  Gear.write(180);
-  BaseArm.write(95);
-  MidArm.write(140);
-  delay(1000);
-  Gear.write(0);
-  while(true) {
-    motorR.walk(-basespeed);
-    motorL.walk(-basespeed);
-  }
+  lockArms();
+  BaseArm.write(150);
+  MidArm.write(160);
+  unlockArms();
 }
 
 void setup () {
@@ -224,35 +211,25 @@ void setup () {
   both.setGyreDegreesRatio(1.4, 90);
 
   // servo to move color sensor
-  ServoColor.attach(42); // 90(front) 180(ground)
+  ServoColor.attach(44);
   frontColor();
 
-  // servo to move the arm
-  BaseArm.attach(48); // 0(super down) , 180(super up)
-  MidArm.attach(46); // 0 (extremo abaixada), 90 (extremo recuada)
-  Gear.attach(44); // 180 (aberta) 0 (fechada)
+  // servos to move the arm
+  lockArms();
   armAway();
 
-  
   // servo to move distance sensor
   ServoDistance.attach(50); //0(right) 90(front) 180 (left)
-  /*
-    // for test servo
-    while(true) {
-    ServoDistance.write(0); delay(700); Serial.println("right");
-    ServoDistance.write(90); delay(700); Serial.println("front");
-    ServoDistance.write(180); delay(700); Serial.println("left");
-    } */
 
   if (!lox.begin()) { // for distance sensor
     Serial.println(F("Failed to boot VL53L0X"));
     while (1);
   }
 
-  //if (!apds.init()) { // for color sensor
-  //  Serial.println(F("Failed to boot APDS"));
-  //  while (1);
-  //}
+  if (!apds.init()) { // for color sensor
+    Serial.println(F("Failed to boot APDS"));
+    while (1);
+  }
   apds.enableLightSensor(false);
 
   //////////////////////////////////// actions part ///////////////////////////////////////////////////
@@ -318,7 +295,6 @@ void setup () {
 
   bool debug_mode = true; // debug mode
   if (debug_mode) {
-//    Serial.println(frontDistance()); debug();
     RescueProcess();
     debug();
   }
@@ -378,40 +354,61 @@ bool isRescueArena() {
 }
 
 void RescueProcess() {
+  //  Serial.println(String(frontDistance())); debug();
   basespeed = 60;
-  turnspeed = 40;
+  turnspeed = 50;
   goto debugBlock;
   both.together(basespeed, 0.3);
   rightCircumvent(4.2, 0.84);
-  debugBlock: Serial.println("starting debugBlock");
   frontDistance();
   delay(100);
   reachWall();
   both.turnDegree(-turnspeed, -105);
 
   ///////////////
-  both.together(basespeed, 0.41);
+  both.together(basespeed, 0.40);
   both.turnDegree(-turnspeed, -95);
   alignBack();
-  both.together(basespeed, 3);
+  both.together(basespeed, 3.2);
   both.turnDegree(turnspeed, 90);
+  debugBlock: Serial.println("starting debugBlock");
   reachWall();
   adjustFrontDistance(basespeed, 3.8);
   both.turnDegree(turnspeed, 95);
 
   // go to cube
-  while(frontColor()!="RED") {
+  while (frontColor() != "RED") {
     motorR.walk(basespeed);
     motorL.walk(basespeed);
   }
+  groundColor();
 
-  adjustFrontDistance(basespeed, 28);
+  adjustFrontDistance(basespeed, 20);
   getCube();
+  delay(1000);
 
-  while(true) {
-    motorR.walk(-basespeed);
-    motorL.walk(-basespeed);
+  both.together(-basespeed, -3);
+  both.turnDegree(turnspeed, 180);
+
+  float search_distance = 33;
+  float ratio = 0.8;
+  float current_angle = 0;
+
+  // start search for circle
+  adjustFrontDistance(120, search_distance);
+
+
+  both.reset();
+  while (motorR.canRun() || motorL.canRun()) {
+    motorR.gyrate(-basespeed, -5);
+    motorL.gyrate(-basespeed, -5);
+    if (groundColor() == "RED") {
+      // deliver cube cube
+      debug();
+    }
   }
+  both.stop();
+  debug();
 }
 
 void obLeft() {
