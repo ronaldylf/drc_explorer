@@ -46,8 +46,8 @@ float front_distance = 0;
 float left_distance = 0;
 float right_distance = 0;
 String colors[2] = {"WHITE", "RED"}; // {binary_color, RGB_color}
-byte pin_base_arm = 0;
-byte pin_mid_arm = 0;
+byte pin_base_arm;
+byte pin_mid_arm;
 ////////////////////////////////
 void adjustFrontDistance(float speed, float desired_distance, bool stop_ = true) {
   speed = abs(speed);
@@ -77,9 +77,8 @@ void reachWall(bool go_back = true) {
   }
 }
 
-void alignBack(byte intertia_time = 1000) {
+void alignBack(byte speed=100, byte intertia_time = 1000) {
   const byte button = 7;
-  const byte speed = 100;
   pinMode(button, INPUT_PULLUP);
   while (digitalRead(button)) {
     motorR.walk(-speed);
@@ -175,7 +174,7 @@ void getCube() {
   lockArms();
   BaseArm.write(150);
   MidArm.write(160);
-  unlockArms();
+  //  unlockArms();
 }
 
 void setup () {
@@ -294,7 +293,7 @@ void setup () {
   // indicate the button worked part2
 
   bool debug_mode = true; // debug mode
-  if (debug_mode) {
+  if (debug_mode) {    
     RescueProcess();
     debug();
   }
@@ -354,9 +353,9 @@ bool isRescueArena() {
 }
 
 void RescueProcess() {
-  //  Serial.println(String(frontDistance())); debug();
   basespeed = 60;
   turnspeed = 50;
+  float maxspeed = 120;
   goto debugBlock;
   both.together(basespeed, 0.3);
   rightCircumvent(4.2, 0.84);
@@ -371,44 +370,83 @@ void RescueProcess() {
   alignBack();
   both.together(basespeed, 3.2);
   both.turnDegree(turnspeed, 90);
-  debugBlock: Serial.println("starting debugBlock");
+debugBlock: Serial.println("starting debugBlock");
   reachWall();
-  adjustFrontDistance(basespeed, 3.8);
-  both.turnDegree(turnspeed, 95);
 
-  // go to cube
-  while (frontColor() != "RED") {
-    motorR.walk(basespeed);
-    motorL.walk(basespeed);
-  }
-  groundColor();
+  float total_cube_distance = 3.4; // distancia total do cubo ate a parede
+  float increment_cube_distance = 15; // (10) distancia entre cada cubo
 
-  adjustFrontDistance(basespeed, 20);
-  getCube();
-  delay(1000);
+  for (int cube_id = 0; cube_id <= 99; cube_id++) {
+    adjustFrontDistance(basespeed, total_cube_distance);
+    both.turnDegree(turnspeed, 95);
 
-  both.together(-basespeed, -3);
-  both.turnDegree(turnspeed, 180);
+    // go to cube
+    while (frontColor() != "RED") {
+      motorR.walk(basespeed);
+      motorL.walk(basespeed);
+    }
+    groundColor();
 
-  float search_distance = 33;
-  float ratio = 0.8;
-  float current_angle = 0;
+    adjustFrontDistance(basespeed, 20);
+    getCube();
+    delay(800);
 
-  // start search for circle
-  adjustFrontDistance(120, search_distance);
+    both.together(-basespeed, -3);
+    if (cube_id==0) {
+      both.turnDegree(turnspeed, 180); 
+    } else {
+      both.turnDegree(turnspeed, 90);
+      alignBack(maxspeed);
+      both.turnDegree(turnspeed, 95);
+    }
 
+    float search_distance = 28; // 33
+    float ratio = 0.8;
+    float current_angle = 0;
+    bool deliver_cube = false;
+    float max_vertical_distance = 75;
+    byte turns = 0;
+    float max_search_distance[99]; for (int i=0; i<=99; i++) max_search_distance[i] = search_distance;
 
-  both.reset();
-  while (motorR.canRun() || motorL.canRun()) {
-    motorR.gyrate(-basespeed, -5);
-    motorL.gyrate(-basespeed, -5);
-    if (groundColor() == "RED") {
-      // deliver cube cube
-      debug();
+    while (true) {
+      // start search for circle
+      adjustFrontDistance(maxspeed, max_search_distance[turns]); // this distance will change
+
+      both.reset();
+      //      while ((motorR.canRun() || motorL.canRun()) && !deliver_cube) {
+      while (frontDistance() < max_vertical_distance) {
+        //        motorR.gyrate(-basespeed, -3.1);
+        //        motorL.gyrate(-basespeed, -3.1);
+        motorR.walk(-maxspeed); motorL.walk(-maxspeed);
+        deliver_cube = (groundColor() == "RED");
+        if (deliver_cube) {
+          if (frontDistance()>search_distance) {
+            both.together(-basespeed, -0.8);
+          }
+          armAway();
+          break;
+        }
+      }
+      if (deliver_cube) { // deliver cube
+        total_cube_distance += increment_cube_distance;
+        for (int future=0; future<=3; future++) { // a distancia diminui umas 3 voltas pra frente
+          max_search_distance[turns+future] = frontDistance()+5;
+        }
+
+        adjustFrontDistance(basespeed, max_vertical_distance);
+        both.turnDegree(basespeed, 90); reachWall();
+        break;
+      }
+
+      adjustFrontDistance(basespeed, max_vertical_distance);
+      
+      // if not found circle:
+      both.turnDegree(-turnspeed, -90);
+      both.together(basespeed, 0.5);
+      both.turnDegree(turnspeed, 90);
+      turns++;
     }
   }
-  both.stop();
-  debug();
 }
 
 void obLeft() {
