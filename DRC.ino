@@ -1,10 +1,13 @@
 #include <DC_motor_controller.h>
 #include <TwoMotors.h>
 #include <Servo.h>
-#include <Wire.h>
 #include <SparkFun_APDS9960.h>
 #include <Pushbutton.h>
+#include <Wire.h>
 #include <VL53L0X.h>
+#include <SPI.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 
 Servo ServoDistance;
 Servo ServoColor;
@@ -12,6 +15,7 @@ Servo ServoColor;
 Servo BaseArm;
 Servo MidArm;
 //////////
+Adafruit_SSD1306 display(128, 64, &Wire, -1);
 
 SparkFun_APDS9960 apds = SparkFun_APDS9960();
 
@@ -80,7 +84,7 @@ void reachWall(bool go_back = true) {
   }
 }
 
-void alignBack(byte speed=100, byte intertia_time = 1000) {
+void alignBack(byte speed = 100, byte intertia_time = 1000) {
   const byte button = 7;
   pinMode(button, INPUT_PULLUP);
   while (digitalRead(button)) {
@@ -185,6 +189,15 @@ float customDistance(byte angle = 0) {
   return readDistance();
 }
 
+void writeText(String text = " ", byte size_ = 3) {
+  display.clearDisplay();
+  display.setTextSize(size_);
+  display.setTextColor(WHITE);
+  display.setCursor(0, 28);
+  display.println(text);
+  display.display();
+}
+
 void setup () {
   //////////////////////////////////// setup part ///////////////////////////////////////////////////
   Serial.begin(9600);
@@ -227,6 +240,11 @@ void setup () {
   // servo to move distance sensor
   ServoDistance.attach(50); //0(right) 90(front) 180 (left)
 
+  // initialize DISPLAY with the I2C addr 0x3C
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  // Clear the buffer.
+  display.clearDisplay();
+
   if (!apds.init()) { // for color sensor
     Serial.println(F("Failed to boot APDS"));
     while (1);
@@ -251,7 +269,7 @@ void setup () {
   // Como o sensor 2 já está com endereço diferente, não é necessário desligá-lo,
   // pois ele não interferirá na comunicação
   //eye_lox.setAdress(0x31);
- 
+
   // Inicializa sensores
   eye_lox.init(); eye_lox.setTimeout(500);
   arm_lox.init(); arm_lox.setTimeout(500);
@@ -318,307 +336,318 @@ void setup () {
 
   bool debug_mode = true; // debug mode
   if (debug_mode) {
-      adjustFrontDistance(basespeed, 3.4);
-      both.turnDegree(turnspeed, 90);
-  
-      // go to cube
-  //    while (frontColor() != "RED") {
-  //      motorR.walk(basespeed);
-  //      motorL.walk(basespeed);
-  //    }
-      groundColor();
-  
-      adjustFrontDistance(basespeed, 23);
+      RescueProcess();
       debug();
-      getCube();
-      delay(800);
-  
-      both.together(-basespeed, -3);
-      debug();
-    
-//    while(true) {
-//      Serial.println(hasCube());
-//      Serial.println(arm_lox.readRangeSingleMillimeters() / 10.0);
-//    }
-    RescueProcess();
-    debug();
-  }
+    }
 
-  have_right = true;   // remove all after tests
-  have_hall = true;
-  have_left = false;  //////////////////////////////////// CHECKPOINT part ///////////////////////////////////////////////////
-  front_distance = frontDistance();
+    have_right = true;   // remove all after tests
+    have_hall = true;
+    have_left = false;  //////////////////////////////////// CHECKPOINT part ///////////////////////////////////////////////////
+    front_distance = frontDistance();
 
-  if (front_distance < 140) {
-    goto checkpoint_A;
-  } else {
-    goto checkpoint_C;
-  }
-
-  ////////////////////// start robot movements////////////////////////
-checkpoint_A:
-  //first section
-  Serial.println("first section");
-  reachWall();
-
-  // going down first stair
-  both.turnDegree(-turnspeed, -90);
-  reachWall(false);
-
-  basespeed = 25.0;
-  turnspeed = 15.0;
-  
-  both.together(-basespeed, -0.2);
-  both.turnDegree(-turnspeed, -90);
-  alignBack();
-  if (have_left) {
-    obLeft();
-  } else {
-    obRight();
-  }
-
-
-  reachWall();
-  both.turnDegree(turnspeed, 90);
-  alignBack();
-  Serial.println("last hall");
-  both.together(maxspeed, 6.1);
-  /////////////////
-
-  Serial.println("pre-rescue");
-checkpoint_C:
-  rightDistance();
-  delay(200);
-  while (!isRescueArena()) {
-    motorR.walk(50);
-    motorL.walk(50);
-  }
-  ////////////////////// start rescue//////////////////// ////
-  both.stop();
-  RescueProcess();
-}
-
-bool isRescueArena() {
-  //  return (groundColor() == "BLUE");
-  return rightDistance() >= 15;
-}
-
-void RescueProcess() {
-  basespeed = 60;
-  turnspeed = 50;
-  goto debugBlock;
-  both.together(basespeed, 0.3);
-  rightCircumvent(4.2, 0.84);
-  frontDistance();
-  delay(100);
-  reachWall();
-  both.turnDegree(-turnspeed, -105);
-
-  ///////////////
-  both.together(basespeed, 0.40);
-  both.turnDegree(-turnspeed, -95);
-  alignBack();
-  both.together(basespeed, 3.2);
-  both.turnDegree(turnspeed, 90);
-  debugBlock: Serial.println("debugBlock");
-  reachWall();
-
-  float total_cube_distance = 3.4; // distancia total do cubo ate a parede
-  float increment_cube_distance = 13; // distance entre os cubos
-
-  float search_distance = 28;
-  float max_search_distance[99]; for (int i=0; i<=99; i++) max_search_distance[i] = search_distance;
-  float max_vertical_distance = 85;
-  0x3c
-  for (int cube_id = 0; cube_id <= 99; cube_id++) {
-    adjustFrontDistance(basespeed, total_cube_distance);
-    both.turnDegree(turnspeed, 90);
-
-    // go to cube
-//    while (frontColor() != "RED") {
-//      motorR.walk(basespeed);
-//      motorL.walk(basespeed);
-//    }
-    groundColor();
-
-    adjustFrontDistance(basespeed, 23);
-    getCube();
-    delay(800);
-
-    both.together(-basespeed, -3);
-    if (cube_id==0) {
-      both.turnDegree(turnspeed, 180); 
+    if (front_distance < 140) {
+      goto checkpoint_A;
     } else {
-      both.turnDegree(turnspeed, 90);
-      alignBack(maxspeed); both.together(basespeed, 0.2);
-      both.turnDegree(turnspeed, 90);
+      goto checkpoint_C;
+    }
+
+    ////////////////////// start robot movements////////////////////////
+checkpoint_A:
+    //first section
+    Serial.println("first section");
+    reachWall();
+
+    // going down first stair
+    both.turnDegree(-turnspeed, -90);
+    reachWall(false);
+
+    basespeed = 25.0;
+    turnspeed = 15.0;
+
+    both.together(-basespeed, -0.2);
+    both.turnDegree(-turnspeed, -90);
+    alignBack();
+    if (have_left) {
+      obLeft();
+    } else {
+      obRight();
     }
 
 
-    bool deliver_cube = false;
-    byte turns = 0;
-    
+    reachWall();
+    both.turnDegree(turnspeed, 90);
+    alignBack();
+    Serial.println("last hall");
+    both.together(maxspeed, 6.1);
+    /////////////////
 
-    while (true) {
-      // start search for circle
-      adjustFrontDistance(maxspeed, max_search_distance[turns]); // this distance will change
+    Serial.println("pre-rescue");
+checkpoint_C:
+    rightDistance();
+    delay(200);
+    while (!isRescueArena()) {
+      motorR.walk(50);
+      motorL.walk(50);
+    }
+    ////////////////////// start rescue//////////////////// ////
+    both.stop();
+    RescueProcess();
+  }
 
-      both.reset();
-      //      while ((motorR.canRun() || motorL.canRun()) && !deliver_cube) {
-      while (frontDistance() < max_vertical_distance) {
-        //        motorR.gyrate(-basespeed, -3.1);
-        //        motorL.gyrate(-basespeed, -3.1);
-        motorR.walk(-maxspeed); motorL.walk(-maxspeed);
-        deliver_cube = (groundColor() == "RED");
-        if (deliver_cube) {
-          if (frontDistance()>search_distance) {
-            both.together(-basespeed, -0.8);
-          }
-          armAway();
+  bool isRescueArena() {
+    //  return (groundColor() == "BLUE");
+    return rightDistance() >= 15;
+  }
+
+  void RescueProcess() {
+    basespeed = 60;
+    turnspeed = 50;
+    goto debugBlock;
+    both.together(basespeed, 0.3);
+    rightCircumvent(4.2, 0.84);
+    frontDistance();
+    delay(100);
+    reachWall();
+    both.turnDegree(-turnspeed, -105);
+
+    ///////////////
+    both.together(basespeed, 0.40);
+    both.turnDegree(-turnspeed, -95);
+    alignBack();
+    both.together(basespeed, 3.2);
+    both.turnDegree(turnspeed, 90);
+debugBlock: Serial.println("debugBlock");
+    reachWall();
+
+    float total_cube_distance = 3.4; // distancia total do cubo ate a parede
+    float increment_cube_distance = 7; // distance entre os cubos
+
+    float search_distance = 28;
+    float max_search_distance[99]; for (int i = 0; i <= 99; i++) max_search_distance[i] = search_distance;
+    float max_vertical_distance = 85;
+
+    for (int cube_id = 0; cube_id <= 99; cube_id++) {
+      adjustFrontDistance(basespeed, total_cube_distance);
+      both.turnDegree(turnspeed, 90);
+      adjustFrontDistance(basespeed, 23);
+  
+      motorR.stopCounting(); motorL.stopCounting();
+      motorR.startCounting(); motorL.startCounting();
+      float left_rotations;
+      while (frontColor() == "RED") {
+        motorL.walk(-basespeed); motorR.walk(basespeed);
+        left_rotations = motorR.getRotations();
+        writeText(String(left_rotations));
+      }
+      motorR.stopCounting(); motorL.stopCounting();
+      motorR.startCounting(); motorL.startCounting();
+      float right_rotations;
+      while (frontColor() != "RED") {
+        motorL.walk(basespeed); motorR.walk(-basespeed);
+        right_rotations = motorL.getRotations();
+        writeText(String(right_rotations));
+      }
+      motorR.stopCounting(); motorL.stopCounting();
+      both.stop();
+      float correction_rotations = 0.1;
+      both.together(turnspeed, correction_rotations, -turnspeed, -correction_rotations);
+      right_rotations += correction_rotations;
+      float resultant_rotations = right_rotations - left_rotations;
+      float side = resultant_rotations / abs(resultant_rotations);
+      writeText(String(resultant_rotations));
+      getCube();
+      delay(800);
+      both.together(turnspeed * -side, abs(resultant_rotations) * -side, turnspeed * side, abs(resultant_rotations)*side);
+  
+      while (true) {
+        both.together(-basespeed, -3);
+        if (hasCube()) {
           break;
+        } else {
+          armAway();
+          while(frontColor()!="RED") {
+            motorR.walk(basespeed); motorL.walk(basespeed);
+          }
+          adjustFrontDistance(basespeed, 35);
+          getCube(); delay(800);
         }
       }
-      if (deliver_cube) { // deliver cube
-        total_cube_distance += increment_cube_distance;
-        const byte avoid_turns = 1; // a distancia diminui umas x voltas pra frente e pra trás
-        for (int future=-avoid_turns; future<=avoid_turns; future++) {
-          max_search_distance[turns+future] = frontDistance()+20;
+
+      adjustFrontDistance(basespeed, 60);
+      
+      if (cube_id == 0) {
+        both.turnDegree(turnspeed, 180);
+      } else {
+        both.turnDegree(turnspeed, 90);
+        alignBack(maxspeed); both.together(basespeed, 0.2);
+        both.turnDegree(turnspeed, 90);
+      }
+
+
+      bool deliver_cube = false;
+      byte turns = 0;
+
+
+      while (true) {
+        // start search for circle
+        adjustFrontDistance(maxspeed, max_search_distance[turns]); // this distance will change
+
+        both.reset();
+        //      while ((motorR.canRun() || motorL.canRun()) && !deliver_cube) {
+        while (frontDistance() < max_vertical_distance) {
+          //        motorR.gyrate(-basespeed, -3.1);
+          //        motorL.gyrate(-basespeed, -3.1);
+          motorR.walk(-maxspeed); motorL.walk(-maxspeed);
+          deliver_cube = (groundColor() == "RED");
+          if (deliver_cube) {
+            if (frontDistance() > search_distance) {
+              both.together(-basespeed, -0.8);
+            }
+            armAway();
+            break;
+          }
+        }
+        if (deliver_cube) { // deliver cube
+          total_cube_distance += increment_cube_distance;
+          const byte avoid_turns = 1; // a distancia diminui umas x voltas pra frente e pra trás
+          for (int future = -avoid_turns; future <= avoid_turns; future++) {
+            max_search_distance[turns + future] = frontDistance() + 20;
+          }
+
+          adjustFrontDistance(basespeed, max_vertical_distance);
+          both.turnDegree(basespeed, 90); reachWall();
+          break;
         }
 
         adjustFrontDistance(basespeed, max_vertical_distance);
-        both.turnDegree(basespeed, 90); reachWall();
-        break;
+
+        // if not found circle:
+        both.turnDegree(-turnspeed, -90);
+        both.together(basespeed, 0.5);
+        both.turnDegree(turnspeed, 90);
+        turns++;
+      }
+    }
+  }
+
+  void obLeft() {
+    if (have_hall) {
+      customDistance(10); delay(200);
+      while (customDistance(10) < 10) {
+        motorR.walk(basespeed);
+        motorL.walk(basespeed);
       }
 
-      adjustFrontDistance(basespeed, max_vertical_distance);
-      
-      // if not found circle:
+      both.stop(200);
+      //    both.together(basespeed, 0.15);
+      rightCircumvent();
+      //    motorL.reset();
+      //    while(motorL.canRun()) {
+      //      motorL.gyrate(basespeed, 4.5);
+      //      motorR.stop();
+      //    }
+      both.together(basespeed, 1);
       both.turnDegree(-turnspeed, -90);
+      alignBack();
+      reachWall();
+      both.turnDegree(-turnspeed, -90);
+      rightDistance();
+      delay(200);
+
+      while (rightDistance() > 10) {
+        motorR.walk(-basespeed);
+        motorL.walk(-basespeed);
+      }
+      both.stop();
+      while (rightDistance() < 10) {
+        motorR.walk(basespeed);
+        motorL.walk(basespeed);
+      }
+      rightCircumvent(3.25, 0.5); // 1/4 turn
+    } else {
+      frontDistance();
+      delay(200);
+      reachWall();
+      both.turnDegree(turnspeed, 85);
+    }
+  }
+
+  void obRight() {
+    both.together(basespeed, 1.75);
+    both.turnDegree(-turnspeed, -90);
+    reachWall();
+    both.turnDegree(turnspeed, 90);
+    reachWall();
+    both.turnDegree(turnspeed, 90);
+    if (have_hall) {
+      alignBack();
+      both.together(basespeed, 1);
+      customDistance(45); delay(200);
+      while (customDistance(45) < 77) {
+        motorR.walk(basespeed);
+        motorL.walk(basespeed);
+      }
       both.together(basespeed, 0.5);
-      both.turnDegree(turnspeed, 90);
-      turns++;
+      rightCircumvent(3.25, 0.5); // 1/4 turn
+      both.together(basespeed, 1); // not so much
+      both.turnDegree(-turnspeed, -90);
+      alignBack();
+      reachWall();
+      both.turnDegree(-turnspeed, -90);
+
+      rightDistance();
+      delay(200);
+
+      while (rightDistance() > 10) {
+        motorR.walk(-basespeed);
+        motorL.walk(-basespeed);
+      }
+      both.stop();
+      while (rightDistance() < 10) {
+        motorR.walk(basespeed);
+        motorL.walk(basespeed);
+      }
+
+      rightCircumvent(3.25, 0.5); // 1/4 turn
     }
   }
-}
 
-void obLeft() {
-  if (have_hall) {
-    customDistance(10); delay(200);
-    while (customDistance(10) < 10) {
-      motorR.walk(basespeed);
-      motorL.walk(basespeed);
-    }
+  float frontDistance() {
+    ServoDistance.write(90);
+    return readDistance();
+  }
 
-    both.stop(200);
-//    both.together(basespeed, 0.15);
-    rightCircumvent();
-//    motorL.reset();
-//    while(motorL.canRun()) {
-//      motorL.gyrate(basespeed, 4.5);
-//      motorR.stop();
-//    }
-    both.together(basespeed, 1);
-    both.turnDegree(-turnspeed, -90);
-    alignBack();
-    reachWall();
-    both.turnDegree(-turnspeed, -90);
-    rightDistance();
-    delay(200);
+  float rightDistance() {
+    ServoDistance.write(0);
+    return readDistance();
+  }
 
-    while (rightDistance() > 10) {
-      motorR.walk(-basespeed);
-      motorL.walk(-basespeed);
-    }
+  float leftDistance() {
+    ServoDistance.write(180);
+    return (readDistance() - 10.0);
+  }
+
+  float readDistance() {
+    const float distance = eye_lox.readRangeSingleMillimeters() / 10.0;
+    return (distance - 2);
+  }
+
+  bool hasCube() {
+    const float distance = arm_lox.readRangeSingleMillimeters() / 10.0;
+    return (distance <= 6);
+  }
+
+  float degreeToRad(float degrees = 0) {
+    return (PI * degrees) / 180;
+  }
+
+  void debug() {
     both.stop();
-    while (rightDistance() < 10) {
-      motorR.walk(basespeed);
-      motorL.walk(basespeed);
+    while (true) {
+      delay(1000);
     }
-    rightCircumvent(3.25, 0.5); // 1/4 turn
-  } else {
-     frontDistance();
-    delay(200);
-    reachWall();
-    both.turnDegree(turnspeed, 85);
   }
-}
 
-void obRight() {
-  both.together(basespeed, 1.75);
-  both.turnDegree(-turnspeed, -90);
-  reachWall();
-  both.turnDegree(turnspeed, 90);
-  reachWall();
-  both.turnDegree(turnspeed, 90);
-  if (have_hall) {
-    alignBack();
-    both.together(basespeed, 1);
-    customDistance(45); delay(200);
-    while(customDistance(45)<77) {
-      motorR.walk(basespeed);
-      motorL.walk(basespeed);
-    }
-    both.together(basespeed, 0.5);
-    rightCircumvent(3.25, 0.5); // 1/4 turn
-    both.together(basespeed, 1); // not so much
-    both.turnDegree(-turnspeed, -90);
-    alignBack();
-    reachWall();
-    both.turnDegree(-turnspeed, -90);
 
-    rightDistance();
-    delay(200);
-
-    while (rightDistance() > 10) {
-      motorR.walk(-basespeed);
-      motorL.walk(-basespeed);
-    }
-    both.stop();
-    while (rightDistance() < 10) {
-      motorR.walk(basespeed);
-      motorL.walk(basespeed);
-    }
-
-    rightCircumvent(3.25, 0.5); // 1/4 turn
+  void loop () {
   }
-}
-
-float frontDistance() {
-  ServoDistance.write(90);
-  return readDistance();
-}
-
-float rightDistance() {
-  ServoDistance.write(0);
-  return readDistance();
-}
-
-float leftDistance() {
-  ServoDistance.write(180);
-  return (readDistance() - 10.0);
-}
-
-float readDistance() {
-  const float distance = eye_lox.readRangeSingleMillimeters() / 10.0;
-  return (distance - 2);
-}
-
-bool hasCube() {
-  const float distance = arm_lox.readRangeSingleMillimeters() / 10.0;
-  return (distance<=6);
-}
-
-float degreeToRad(float degrees = 0) {
-  return (PI * degrees) / 180;
-}
-
-void debug() {
-  both.stop();
-  while (true) {
-    delay(1000);
-  }
-}
-
-
-void loop () {
-}
