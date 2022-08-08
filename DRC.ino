@@ -4,7 +4,7 @@
 #include <Wire.h>
 #include <SparkFun_APDS9960.h>
 #include <Pushbutton.h>
-#include "Adafruit_VL53L0X.h"
+#include <VL53L0X.h>
 
 Servo ServoDistance;
 Servo ServoColor;
@@ -24,7 +24,9 @@ void interruptR () {
 void interruptL () {
   motorL.isr();
 }
-Adafruit_VL53L0X lox = Adafruit_VL53L0X();
+VL53L0X eye_lox, arm_lox;
+#define SHUT_ARM 51
+#define SHUT_EYE 45
 ////////////////////////////
 // setup variables
 Pushbutton left_button(A0);
@@ -33,8 +35,9 @@ Pushbutton right_button(A2);
 
 ////////////////////////////
 // static variables
-float basespeed = 25.0;
-float turnspeed = 15.0;
+float basespeed = 50.0;
+float maxspeed = 120;
+float turnspeed = 30.0;
 ////////////////////////////////
 // editable variables
 bool have_right = false;
@@ -71,7 +74,7 @@ void adjustFrontDistance(float speed, float desired_distance, bool stop_ = true)
 }
 
 void reachWall(bool go_back = true) {
-  adjustFrontDistance(100, 2.3);
+  adjustFrontDistance(100, 2.8);
   if (go_back) {
     both.together(-basespeed, -0.07);
   }
@@ -177,6 +180,11 @@ void getCube() {
   //  unlockArms();
 }
 
+float customDistance(byte angle = 0) {
+  ServoDistance.write(angle);
+  return readDistance();
+}
+
 void setup () {
   //////////////////////////////////// setup part ///////////////////////////////////////////////////
   Serial.begin(9600);
@@ -184,9 +192,8 @@ void setup () {
     delay(1);
   }
 
-
   Serial.println("reiniciou");
-
+  Wire.begin();
 
   // left motor:
   motorL.hBridge(11, 12, 13);
@@ -207,7 +214,7 @@ void setup () {
   motorR.stop();
   attachInterrupt(digitalPinToInterrupt(3), interruptR, FALLING);
 
-  both.setGyreDegreesRatio(1.4, 90);
+  both.setGyreDegreesRatio(1.45, 90);
 
   // servo to move color sensor
   ServoColor.attach(44);
@@ -220,17 +227,34 @@ void setup () {
   // servo to move distance sensor
   ServoDistance.attach(50); //0(right) 90(front) 180 (left)
 
-  if (!lox.begin()) { // for distance sensor
-    Serial.println(F("Failed to boot VL53L0X"));
-    while (1);
-  }
-
   if (!apds.init()) { // for color sensor
     Serial.println(F("Failed to boot APDS"));
     while (1);
   }
   apds.enableLightSensor(false);
 
+  // for distance sensors:
+  // Define o sensor 2 como entrada para fazer o pino SHUT_ARM ficar em nível alto
+  pinMode(SHUT_EYE, OUTPUT);
+  pinMode(SHUT_ARM, INPUT);
+
+  // "Desliga" o sensor 1
+  digitalWrite(SHUT_EYE, LOW);
+  delay(2);
+
+  // Altera o endereço do sensor 2
+  arm_lox.setAddress(0x32);
+
+  // Religa o sensor 1 definindo ele como entrada
+  pinMode(SHUT_EYE, INPUT);
+  // É possível alterar o endereço do sensor 1 apenas com o código abaixo
+  // Como o sensor 2 já está com endereço diferente, não é necessário desligá-lo,
+  // pois ele não interferirá na comunicação
+  //eye_lox.setAdress(0x31);
+ 
+  // Inicializa sensores
+  eye_lox.init(); eye_lox.setTimeout(500);
+  arm_lox.init(); arm_lox.setTimeout(500);
   //////////////////////////////////// actions part ///////////////////////////////////////////////////
   // cleaning panel
 
@@ -293,7 +317,29 @@ void setup () {
   // indicate the button worked part2
 
   bool debug_mode = true; // debug mode
-  if (debug_mode) {    
+  if (debug_mode) {
+      adjustFrontDistance(basespeed, 3.4);
+      both.turnDegree(turnspeed, 90);
+  
+      // go to cube
+  //    while (frontColor() != "RED") {
+  //      motorR.walk(basespeed);
+  //      motorL.walk(basespeed);
+  //    }
+      groundColor();
+  
+      adjustFrontDistance(basespeed, 23);
+      debug();
+      getCube();
+      delay(800);
+  
+      both.together(-basespeed, -3);
+      debug();
+    
+//    while(true) {
+//      Serial.println(hasCube());
+//      Serial.println(arm_lox.readRangeSingleMillimeters() / 10.0);
+//    }
     RescueProcess();
     debug();
   }
@@ -319,8 +365,12 @@ checkpoint_A:
   both.turnDegree(-turnspeed, -90);
   reachWall(false);
 
+  basespeed = 25.0;
+  turnspeed = 15.0;
+  
   both.together(-basespeed, -0.2);
   both.turnDegree(-turnspeed, -90);
+  alignBack();
   if (have_left) {
     obLeft();
   } else {
@@ -330,8 +380,9 @@ checkpoint_A:
 
   reachWall();
   both.turnDegree(turnspeed, 90);
+  alignBack();
   Serial.println("last hall");
-  both.together(basespeed, 5.8);
+  both.together(maxspeed, 6.1);
   /////////////////
 
   Serial.println("pre-rescue");
@@ -355,7 +406,6 @@ bool isRescueArena() {
 void RescueProcess() {
   basespeed = 60;
   turnspeed = 50;
-  float maxspeed = 120;
   goto debugBlock;
   both.together(basespeed, 0.3);
   rightCircumvent(4.2, 0.84);
@@ -370,24 +420,28 @@ void RescueProcess() {
   alignBack();
   both.together(basespeed, 3.2);
   both.turnDegree(turnspeed, 90);
-debugBlock: Serial.println("starting debugBlock");
+  debugBlock: Serial.println("debugBlock");
   reachWall();
 
   float total_cube_distance = 3.4; // distancia total do cubo ate a parede
-  float increment_cube_distance = 15; // (10) distancia entre cada cubo
+  float increment_cube_distance = 13; // distance entre os cubos
 
+  float search_distance = 28;
+  float max_search_distance[99]; for (int i=0; i<=99; i++) max_search_distance[i] = search_distance;
+  float max_vertical_distance = 85;
+  0x3c
   for (int cube_id = 0; cube_id <= 99; cube_id++) {
     adjustFrontDistance(basespeed, total_cube_distance);
-    both.turnDegree(turnspeed, 95);
+    both.turnDegree(turnspeed, 90);
 
     // go to cube
-    while (frontColor() != "RED") {
-      motorR.walk(basespeed);
-      motorL.walk(basespeed);
-    }
+//    while (frontColor() != "RED") {
+//      motorR.walk(basespeed);
+//      motorL.walk(basespeed);
+//    }
     groundColor();
 
-    adjustFrontDistance(basespeed, 20);
+    adjustFrontDistance(basespeed, 23);
     getCube();
     delay(800);
 
@@ -396,17 +450,14 @@ debugBlock: Serial.println("starting debugBlock");
       both.turnDegree(turnspeed, 180); 
     } else {
       both.turnDegree(turnspeed, 90);
-      alignBack(maxspeed);
-      both.turnDegree(turnspeed, 95);
+      alignBack(maxspeed); both.together(basespeed, 0.2);
+      both.turnDegree(turnspeed, 90);
     }
 
-    float search_distance = 28; // 33
-    float ratio = 0.8;
-    float current_angle = 0;
+
     bool deliver_cube = false;
-    float max_vertical_distance = 75;
     byte turns = 0;
-    float max_search_distance[99]; for (int i=0; i<=99; i++) max_search_distance[i] = search_distance;
+    
 
     while (true) {
       // start search for circle
@@ -429,8 +480,9 @@ debugBlock: Serial.println("starting debugBlock");
       }
       if (deliver_cube) { // deliver cube
         total_cube_distance += increment_cube_distance;
-        for (int future=0; future<=3; future++) { // a distancia diminui umas 3 voltas pra frente
-          max_search_distance[turns+future] = frontDistance()+5;
+        const byte avoid_turns = 1; // a distancia diminui umas x voltas pra frente e pra trás
+        for (int future=-avoid_turns; future<=avoid_turns; future++) {
+          max_search_distance[turns+future] = frontDistance()+20;
         }
 
         adjustFrontDistance(basespeed, max_vertical_distance);
@@ -451,15 +503,23 @@ debugBlock: Serial.println("starting debugBlock");
 
 void obLeft() {
   if (have_hall) {
-    rightDistance();
-    delay(200);
-    while (rightDistance() < 10) {
+    customDistance(10); delay(200);
+    while (customDistance(10) < 10) {
       motorR.walk(basespeed);
       motorL.walk(basespeed);
     }
 
+    both.stop(200);
+//    both.together(basespeed, 0.15);
     rightCircumvent();
+//    motorL.reset();
+//    while(motorL.canRun()) {
+//      motorL.gyrate(basespeed, 4.5);
+//      motorR.stop();
+//    }
+    both.together(basespeed, 1);
     both.turnDegree(-turnspeed, -90);
+    alignBack();
     reachWall();
     both.turnDegree(-turnspeed, -90);
     rightDistance();
@@ -476,7 +536,7 @@ void obLeft() {
     }
     rightCircumvent(3.25, 0.5); // 1/4 turn
   } else {
-    frontDistance();
+     frontDistance();
     delay(200);
     reachWall();
     both.turnDegree(turnspeed, 85);
@@ -484,17 +544,25 @@ void obLeft() {
 }
 
 void obRight() {
-  both.together(basespeed, 1.65);
+  both.together(basespeed, 1.75);
   both.turnDegree(-turnspeed, -90);
   reachWall();
   both.turnDegree(turnspeed, 90);
   reachWall();
   both.turnDegree(turnspeed, 90);
   if (have_hall) {
-    both.together(basespeed, 2); // a lot
+    alignBack();
+    both.together(basespeed, 1);
+    customDistance(45); delay(200);
+    while(customDistance(45)<77) {
+      motorR.walk(basespeed);
+      motorL.walk(basespeed);
+    }
+    both.together(basespeed, 0.5);
     rightCircumvent(3.25, 0.5); // 1/4 turn
-    both.together(basespeed, 0.3); // not so much
+    both.together(basespeed, 1); // not so much
     both.turnDegree(-turnspeed, -90);
+    alignBack();
     reachWall();
     both.turnDegree(-turnspeed, -90);
 
@@ -513,11 +581,6 @@ void obRight() {
 
     rightCircumvent(3.25, 0.5); // 1/4 turn
   }
-}
-
-float customDistance(byte angle = 0) {
-  ServoDistance.write(angle);
-  return readDistance();
 }
 
 float frontDistance() {
@@ -536,16 +599,13 @@ float leftDistance() {
 }
 
 float readDistance() {
-  float distance = 0;
-  VL53L0X_RangingMeasurementData_t measure;
-  lox.rangingTest(&measure, false); // pass in 'true' to get debug data printout!
-  if (measure.RangeStatus != 4) {  // phase failures have incorrect data
-    distance = measure.RangeMilliMeter / 10;
-  } else {
-    distance = 200;
-  }
-
+  const float distance = eye_lox.readRangeSingleMillimeters() / 10.0;
   return (distance - 2);
+}
+
+bool hasCube() {
+  const float distance = arm_lox.readRangeSingleMillimeters() / 10.0;
+  return (distance<=6);
 }
 
 float degreeToRad(float degrees = 0) {
