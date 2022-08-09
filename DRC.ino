@@ -52,7 +52,6 @@ bool have_left = false;
 float front_distance = 0;
 float left_distance = 0;
 float right_distance = 0;
-String colors[2] = {"WHITE", "RED"}; // {binary_color, RGB_color}
 byte pin_base_arm;
 byte pin_mid_arm;
 ////////////////////////////////
@@ -77,8 +76,13 @@ void adjustFrontDistance(float speed, float desired_distance, bool stop_ = true)
   }
 }
 
-void reachWall(bool go_back = true) {
+void reachWall(bool go_back = true, int delay_time=500) {
   adjustFrontDistance(100, 2.8);
+  int t0 = millis(); int t=0;
+  while((t-t0)<delay_time) {
+    motorR.walk(100); motorL.walk(100);
+    t = millis();
+  }
   if (go_back) {
     both.together(-basespeed, -0.07);
   }
@@ -113,7 +117,7 @@ String readColor(int max_black = 1) {
   apds.readBlueLight(blue);
 
   String current_color = "WHITE";
-  float red_margin = 0.85; float possible_r;
+  float red_margin = 0.80; float possible_r; //0.85
   float green_margin = 0.72; float possible_g;
   float blue_margin = 0.85; float possible_b;
 
@@ -180,8 +184,9 @@ void unlockArms() {
 void getCube() {
   lockArms();
   BaseArm.write(150);
-  MidArm.write(160);
-  //  unlockArms();
+  delay(200);
+  MidArm.write(140); //180 (max down)
+//  unlockArms();
 }
 
 float customDistance(byte angle = 0) {
@@ -194,7 +199,7 @@ void writeText(String text = " ", byte size_ = 3) {
   display.setTextSize(size_);
   display.setTextColor(WHITE);
   display.setCursor(0, 28);
-  display.println(text);
+  display.println(text); Serial.println(text);
   display.display();
 }
 
@@ -227,16 +232,15 @@ void setup () {
   motorR.stop();
   attachInterrupt(digitalPinToInterrupt(3), interruptR, FALLING);
 
-  both.setGyreDegreesRatio(1.45, 90);
+  both.setGyreDegreesRatio(1.42, 90);
 
   // servo to move color sensor
   ServoColor.attach(44);
   frontColor();
 
   // servos to move the arm
-  lockArms();
+  lockArms();  
   armAway();
-
   // servo to move distance sensor
   ServoDistance.attach(50); //0(right) 90(front) 180 (left)
 
@@ -414,22 +418,27 @@ checkpoint_C:
     both.together(basespeed, 0.40);
     both.turnDegree(-turnspeed, -95);
     alignBack();
-    both.together(basespeed, 3.2);
+    both.together(basespeed, 3.3); //3.4
     both.turnDegree(turnspeed, 90);
 debugBlock: Serial.println("debugBlock");
     reachWall();
 
-    float total_cube_distance = 3.4; // distancia total do cubo ate a parede
+    float total_cube_distance = 3.4; // distancia total do cubo ate a parede (old 3.4);
     float increment_cube_distance = 7; // distance entre os cubos
 
     float search_distance = 28;
     float max_search_distance[99]; for (int i = 0; i <= 99; i++) max_search_distance[i] = search_distance;
-    float max_vertical_distance = 85;
+    float max_vertical_distance = 87;
 
     for (int cube_id = 0; cube_id <= 99; cube_id++) {
+      if (cube_id==1) total_cube_distance = 7;
+      if (cube_id==2) total_cube_distance = 18;
+      if (cube_id==3) total_cube_distance = 25;
+      writeText(String(total_cube_distance));
       adjustFrontDistance(basespeed, total_cube_distance);
       both.turnDegree(turnspeed, 90);
-      adjustFrontDistance(basespeed, 23);
+      frontColor();
+      adjustFrontDistance(basespeed, 24.5); // [24, 25]
   
       motorR.stopCounting(); motorL.stopCounting();
       motorR.startCounting(); motorL.startCounting();
@@ -455,25 +464,23 @@ debugBlock: Serial.println("debugBlock");
       float resultant_rotations = right_rotations - left_rotations;
       float side = resultant_rotations / abs(resultant_rotations);
       writeText(String(resultant_rotations));
-      getCube();
-      delay(800);
+      getCube(); delay(800);
       both.together(turnspeed * -side, abs(resultant_rotations) * -side, turnspeed * side, abs(resultant_rotations)*side);
   
       while (true) {
-        both.together(-basespeed, -3);
+        both.together(-basespeed, -2.7);
+        writeText(String(arm_lox.readRangeSingleMillimeters() / 10.0));
         if (hasCube()) {
           break;
         } else {
           armAway();
-          while(frontColor()!="RED") {
-            motorR.walk(basespeed); motorL.walk(basespeed);
-          }
-          adjustFrontDistance(basespeed, 35);
+//          adjustFrontDistance(60, 35);
+          both.together(basespeed, 2);
           getCube(); delay(800);
         }
       }
 
-      adjustFrontDistance(basespeed, 60);
+      adjustFrontDistance(basespeed, 65);
       
       if (cube_id == 0) {
         both.turnDegree(turnspeed, 180);
@@ -482,21 +489,18 @@ debugBlock: Serial.println("debugBlock");
         alignBack(maxspeed); both.together(basespeed, 0.2);
         both.turnDegree(turnspeed, 90);
       }
-
+    
 
       bool deliver_cube = false;
       byte turns = 0;
 
-
-      while (true) {
-        // start search for circle
+      groundColor(); delay(200);
+      while (true) { //search for circle
         adjustFrontDistance(maxspeed, max_search_distance[turns]); // this distance will change
 
         both.reset();
-        //      while ((motorR.canRun() || motorL.canRun()) && !deliver_cube) {
+
         while (frontDistance() < max_vertical_distance) {
-          //        motorR.gyrate(-basespeed, -3.1);
-          //        motorL.gyrate(-basespeed, -3.1);
           motorR.walk(-maxspeed); motorL.walk(-maxspeed);
           deliver_cube = (groundColor() == "RED");
           if (deliver_cube) {
@@ -520,12 +524,12 @@ debugBlock: Serial.println("debugBlock");
         }
 
         adjustFrontDistance(basespeed, max_vertical_distance);
-
+        turns++;
+      
         // if not found circle:
         both.turnDegree(-turnspeed, -90);
         both.together(basespeed, 0.5);
         both.turnDegree(turnspeed, 90);
-        turns++;
       }
     }
   }
