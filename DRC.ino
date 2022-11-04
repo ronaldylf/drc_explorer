@@ -47,6 +47,8 @@ byte pin_arm = 48;
 byte pin_hand = 46;
 byte pin_servo_distance = 50;
 byte pin_servo_color = 52;
+byte pin_align = 38;
+
 float rot_per_degree = 1.3/90.0;
 
 // dynamic functions
@@ -88,6 +90,14 @@ void reachWall(bool go_back = true, int delay_time = 600) {
 }
 
 void alignBack(byte speed = 100) {
+  pinMode(pin_align, INPUT_PULLUP);
+
+//
+//  while (digitalRead(pin_align)) {
+//    motorR.walk(-speed);
+//    motorL.walk(-speed);
+//  }
+
   unsigned long init_time = millis();
   while (millis() - init_time < 500) {
     motorR.walk(-speed);
@@ -413,9 +423,9 @@ debugBlock:
   float total_cube_distance = 9.5; // distancia total do cubo ate a parede (old 3.4);
   float increment_cube_distance = 7; // distance entre os cubos
 
-  float search_distance = 28;
+  float search_distance = 22;
   float max_search_distance[99]; for (int i = 0; i <= 99; i++) max_search_distance[i] = search_distance;
-  float max_vertical_distance = 95; // 85
+  float max_vertical_distance = 90;
   float after_get_cube_distance = 58;
 
   for (int cube_id = 0; cube_id <= 99; cube_id++) {
@@ -424,31 +434,27 @@ debugBlock:
     adjustFrontDistance(basespeed, total_cube_distance);
     both.turnDegree(turnspeed, 90);
     frontColor();
-    adjustFrontDistance(basespeed, 17.5); //////// distance until cube
+    adjustFrontDistance(basespeed, 17); /////17.5/// distance until cube
 
-    motorR.stopCounting(); motorL.stopCounting();
-    motorR.startCounting(); motorL.startCounting();
-    float left_rotations;
+    motorL.startCounting();
+    float resultant_rotations = 0;
     while (frontColor() == "RED") {
       motorL.walk(-basespeed); motorR.walk(basespeed);
-      left_rotations = motorR.getRotations();
-      writeText(String(left_rotations));
     }
-    motorR.stopCounting(); motorL.stopCounting();
-    motorR.startCounting(); motorL.startCounting();
-    float right_rotations;
+    resultant_rotations += motorL.getRotations();
+    writeText(String(resultant_rotations));
+    motorL.stopCounting();
+    motorL.startCounting();
     while (frontColor() != "RED") {
       motorL.walk(basespeed); motorR.walk(-basespeed);
-      right_rotations = motorL.getRotations();
-      writeText(String(right_rotations));
     }
-    motorR.stopCounting(); motorL.stopCounting();
-    both.stop();
-    float resultant_rotations = right_rotations - left_rotations;
-    float side = resultant_rotations / abs(resultant_rotations);
+    resultant_rotations += motorL.getRotations();
     writeText(String(resultant_rotations));
+    motorL.stopCounting();
+    both.stop();
+    float side = resultant_rotations / abs(resultant_rotations);
 
-    float correction_degrees = 8;
+    float correction_degrees = 7;
     both.turnDegree(turnspeed, correction_degrees);
 
     while (getProximity() == 0) {
@@ -463,8 +469,9 @@ debugBlock:
 
     both.together(-basespeed, -0.05);
     getCube(); delay(200);
-    both.turnDegree(-turnspeed, -correction_degrees);
 
+    both.together(turnspeed*-side, abs(resultant_rotations)*-side, turnspeed*side, abs(resultant_rotations)*side);
+    both.turnDegree(-turnspeed, -correction_degrees);
     adjustFrontDistance(basespeed, after_get_cube_distance);
 
     both.turnDegree(turnspeed, 90);
@@ -486,6 +493,10 @@ debugBlock:
           writeText("found circle");
 
           resultant_rotations = 0;
+          
+//          debugBlock:
+//          groundColor(); delay(200);
+        
           both.turnDegree(turnspeed, 90);
           while (!isCircle()) {
             motorL.walk(-basespeed);
@@ -538,9 +549,10 @@ debugBlock:
    
           
           float side = resultant_degrees / abs(resultant_degrees);
-          float calculus = abs(abs(resultant_degrees) - abs(correction_degrees))*-side;
+          float calculus = abs(abs(resultant_degrees) - abs(correction_degrees));
           writeText(String(calculus));
-          both.turnDegree(turnspeed*-side, calculus);
+          both.turnDegree(turnspeed*-side, calculus*-side);
+          debug();
           both.turnDegree(-turnspeed, -90);
           break;
         }
@@ -550,7 +562,7 @@ debugBlock:
         const byte avoid_turns_left = 1; // muda a distancia maxima da parede x voltas pra a esquerda
         const byte avoid_turns_right = 2; // muda a distancia maxima da parede x voltas pra a direita
         for (int future = -avoid_turns_left; future <= avoid_turns_right; future++) {
-          max_search_distance[turns + future] = frontDistance() + 20;
+          max_search_distance[turns + future] = frontDistance() + 17;
         }
 
         adjustFrontDistance(basespeed, max_vertical_distance);
@@ -565,7 +577,7 @@ debugBlock:
       both.turnDegree(-turnspeed, -90);
 //      alignBack();
       const byte max_horizontal_distance = 95;
-      const byte each_turn_distance = 10;
+      const byte each_turn_distance = 11;
       adjustFrontDistance(basespeed, max_horizontal_distance - (turns * each_turn_distance));
       both.turnDegree(turnspeed, 90);
     }
