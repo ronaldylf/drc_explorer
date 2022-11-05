@@ -577,7 +577,7 @@ debugBlock:
       both.turnDegree(-turnspeed, -90);
 //      alignBack();
       const byte max_horizontal_distance = 95;
-      const byte each_turn_distance = 11;
+      const byte each_turn_distance = 17;
       adjustFrontDistance(basespeed, max_horizontal_distance - (turns * each_turn_distance));
       both.turnDegree(turnspeed, 90);
     }
