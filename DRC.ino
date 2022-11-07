@@ -38,15 +38,15 @@ Pushbutton right_button(6);
 
 ////////////////////////////
 // static variables
-float basespeed = 70.0;//50
+float basespeed = 80.0;//50
 float maxspeed = 60.0;
-float turnspeed = 30.0;
+float turnspeed = 50.0;
 ////////////////////////////////
 // dynamic variables
 byte pin_arm = 48;
 byte pin_hand = 46;
-byte pin_servo_distance = 50;
-byte pin_servo_color = 52;
+byte pin_servo_distance = 52;
+byte pin_servo_color = 50;
 byte pin_align = 38;
 
 float rot_per_degree = 1.3/90.0;
@@ -92,7 +92,6 @@ void reachWall(bool go_back = true, int delay_time = 600) {
 void alignBack(byte speed = 100) {
   pinMode(pin_align, INPUT_PULLUP);
 
-//
 //  while (digitalRead(pin_align)) {
 //    motorR.walk(-speed);
 //    motorL.walk(-speed);
@@ -132,8 +131,8 @@ String getColor() {
   apds.readBlueLight(blue);
 
   String current_color = "WHITE";
-  float min_black = blank_luminosity * 0.15;
-  float red_margin = 0.9; float possible_r; //0.85
+  float min_black = blank_luminosity * 0.2; // 0.15
+  float red_margin = 0.75; float possible_r; //0.85
   float green_margin = 0.85; float possible_g;
   float blue_margin = 0.85; float possible_b;
 
@@ -215,8 +214,8 @@ void getCube() {
   arm.write(0); // 0 (super front), 180 (super back)
   delay(1000);
   both.together(50, 0.2);
-  hand.write(80); // 180 (super open) 0 (super close)
-  delay(720);
+  hand.write(85); // 180 (super open) 0 (super close)
+  delay(1000);
   arm.write(135); // 0 (super front), 180 (super back)
   unlockArms();
 }
@@ -242,9 +241,11 @@ void followWall(float left_ratio = 0, float right_ratio = 0.3, float adjust_dist
   if (rightDistance() > adjust_distance) {
     motorL.walk(basespeed);
     motorR.walk(basespeed * right_ratio);
+    writeText("right");
   } else {
     motorL.walk(basespeed * left_ratio);
     motorR.walk(basespeed);
+    writeText("left");
   }
 }
 
@@ -267,13 +268,13 @@ void setup () {
   Serial.println("reiniciou");
   Wire.begin();
 
-  const float kp = 3.5; // 2.5
-  const float ki = 1;
+  const float kp = 3.5;
+  const float ki = 0.9;
   const float kd = 0.15;
   // left motor:
   // left motor:
   motorL.hBridge(11, 12, 13);
-  motorL.setEncoderPin(2, 5);
+  motorL.setEncoderPin(2, 4);
   motorL.setRR(30);
   motorL.setPIDconstants(kp, ki, kd);
   motorL.setPins();
@@ -283,7 +284,7 @@ void setup () {
 
   // right motor:
   motorR.hBridge(9, 10, 8);
-  motorR.setEncoderPin(3, 4);
+  motorR.setEncoderPin(3, 5);
   motorR.setRR(30);
   motorR.setPIDconstants(kp, ki, kd);
   motorR.setPins();
@@ -307,6 +308,7 @@ void setup () {
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
   // Clear the buffer.
   display.clearDisplay();
+  writeText("display ok");
 
 
   if (!apds.init()) { // for color sensor
@@ -345,23 +347,35 @@ void setup () {
   frontColor();
   ////// wait button
   while (!left_button.isPressed() && !right_button.isPressed());
-
+  writeText("waiting");
+  delay(1000);
   blank_luminosity = getLuminosity();
-  bool debug_mode = true; // debug mode
+  writeText(String(blank_luminosity));
+  bool debug_mode = false; // debug mode
   if (debug_mode) {
-    Serial.println("iniciando debug");
-    RescueProcess();
+    while(true) {
+      Serial.println("\t frontDistance: " + String(frontDistance()));
+      Serial.println("\t frontColor: " + String(frontColor()));
+      Serial.println("\t getLuminosity: " + String(getLuminosity()));
+      Serial.println("\t blank_luminosity: " + String(blank_luminosity));
+      Serial.println();
+      delay(800);
+    }
+    
+//    RescueProcess();
     debug();
   }
   //////////////////////////////////// MAIN part ///////////////////////////////////////////////////
+  writeText("starting");
   rightDistance();
   frontColor();
   delay(200);
   blank_luminosity = getLuminosity();
   Serial.println("calibrated blank_luminosity: " + String(blank_luminosity));
+  String obstacle_color = "RED";
   while (true) {
-    followWall(0, 0, 9);
-    bool has_obstacle = frontColor() == "BLUE";
+    followWall(0, 0, 10);
+    bool has_obstacle = frontColor() == obstacle_color;
     if (has_obstacle) { // obstacle
       frontDistance(); delay(200);
       has_obstacle = has_obstacle && frontDistance() < 10;
@@ -371,8 +385,9 @@ void setup () {
       Serial.println("obstacle ahead");
       both.turnDegree(-turnspeed, -90);
       alignBack();
+      //while (!hasFoundWall() && frontColor()!=obstacle_color) {
       while (!hasFoundWall()) {
-        followWall(0, 0, 11);
+        followWall(0, 0, 12);
       }
       reachWall();
     } else if (hasFoundWall()) {
@@ -396,18 +411,19 @@ bool isCircle() {
 
 void RescueProcess() {
   frontDistance(); frontColor(); delay(200);
-  basespeed = 65;
+  basespeed = 70;
   turnspeed = 70;
-  goto debugBlock;
+//  goto debugBlock;
+  reachWall();
   both.turnDegree(-turnspeed, -90);
   alignBack();
-  // take down door
   float back_rotations = 0;
   both.stop();
   motorR.stopCounting(); motorR.startCounting();
+  // take down door
   while (frontDistance() < 30) {
-    motorR.walk(basespeed);
-    motorL.walk(basespeed);
+    motorR.walk(100);
+    motorL.walk(100);
     back_rotations = motorR.getRotations();
     Serial.println("back_rotations: " + String(back_rotations));
   }
@@ -416,17 +432,19 @@ void RescueProcess() {
   both.together(-basespeed, -back_rotations);
   alignBack();
   Serial.println("back_rotations: " + String(back_rotations));
-  both.together(basespeed, 4.8);
+  groundColor(); delay(200);
+  both.together(basespeed, 5);
+  
   both.turnDegree(turnspeed, 90);
-debugBlock:
+//debugBlock:
   // EDIT HERE
-  float total_cube_distance = 9.5; // distancia total do cubo ate a parede (old 3.4);
+  float total_cube_distance = 10; // 9.5
   float increment_cube_distance = 7; // distance entre os cubos
 
   float search_distance = 22;
   float max_search_distance[99]; for (int i = 0; i <= 99; i++) max_search_distance[i] = search_distance;
   float max_vertical_distance = 90;
-  float after_get_cube_distance = 58;
+  float after_get_cube_distance = 62;
 
   for (int cube_id = 0; cube_id <= 99; cube_id++) {
     writeText(String(total_cube_distance));
@@ -434,7 +452,8 @@ debugBlock:
     adjustFrontDistance(basespeed, total_cube_distance);
     both.turnDegree(turnspeed, 90);
     frontColor();
-    adjustFrontDistance(basespeed, 17); /////17.5/// distance until cube
+
+    adjustFrontDistance(basespeed, 17);  // distance until cube
 
     motorL.startCounting();
     float resultant_rotations = 0;
@@ -552,7 +571,6 @@ debugBlock:
           float calculus = abs(abs(resultant_degrees) - abs(correction_degrees));
           writeText(String(calculus));
           both.turnDegree(turnspeed*-side, calculus*-side);
-          debug();
           both.turnDegree(-turnspeed, -90);
           break;
         }
