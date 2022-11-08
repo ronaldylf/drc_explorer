@@ -84,12 +84,17 @@ void reachWall(bool go_back = true, int delay_time = 600) {
     motorR.walk(100); motorL.walk(100);
     t = millis();
   }
+
+  motorR.run(255);
+  motorL.run(255);
+  delay(500);
+  
   if (go_back) {
     both.together(-basespeed, -0.07);
   }
 }
 
-void alignBack(byte speed = 100) {
+void alignBack(byte speed = 100, int timeout=1200) { // 500
   pinMode(pin_align, INPUT_PULLUP);
 
 //  while (digitalRead(pin_align)) {
@@ -98,7 +103,7 @@ void alignBack(byte speed = 100) {
 //  }
 
   unsigned long init_time = millis();
-  while (millis() - init_time < 500) {
+  while (millis() - init_time < timeout) {
     motorR.walk(-speed);
     motorL.walk(-speed);
   }
@@ -214,8 +219,8 @@ void getCube() {
   arm.write(0); // 0 (super front), 180 (super back)
   delay(1000);
   both.together(50, 0.2);
-  hand.write(85); // 180 (super open) 0 (super close)
-  delay(1000);
+  hand.write(55); // 180 (super open) 0 (super close)
+  delay(2000);
   arm.write(135); // 0 (super front), 180 (super back)
   unlockArms();
 }
@@ -237,15 +242,14 @@ float customDistance(byte angle = 0) {
   return readDistance();
 }
 
-void followWall(float left_ratio = 0, float right_ratio = 0.3, float adjust_distance = 9) {
+void followWall(float left_ratio = 0, float right_ratio = 0, float adjust_distance = 9) {
   if (rightDistance() > adjust_distance) {
     motorL.walk(basespeed);
     motorR.walk(basespeed * right_ratio);
-    writeText("right");
+
   } else {
     motorL.walk(basespeed * left_ratio);
     motorR.walk(basespeed);
-    writeText("left");
   }
 }
 
@@ -291,7 +295,8 @@ void setup () {
   motorR.stop();
   attachInterrupt(digitalPinToInterrupt(3), interruptR, FALLING);
 
-  both.setGyreDegreesRatio(1.3, 90);
+  rot_per_degree = 1.5/90.0;
+  both.setGyreDegreesRatio(1.5, 90.0);
 
   // servo to move distance sensor
   ServoDistance.attach(pin_servo_distance); //0(right) 90(front) 180 (left)
@@ -346,21 +351,22 @@ void setup () {
   frontDistance();
   frontColor();
   ////// wait button
-  while (!left_button.isPressed() && !right_button.isPressed());
   writeText("waiting");
+  while (!left_button.isPressed() && !right_button.isPressed());
+  writeText("ok");
   delay(1000);
   blank_luminosity = getLuminosity();
   writeText(String(blank_luminosity));
   bool debug_mode = false; // debug mode
   if (debug_mode) {
-    while(true) {
-      Serial.println("\t frontDistance: " + String(frontDistance()));
-      Serial.println("\t frontColor: " + String(frontColor()));
-      Serial.println("\t getLuminosity: " + String(getLuminosity()));
-      Serial.println("\t blank_luminosity: " + String(blank_luminosity));
-      Serial.println();
-      delay(800);
-    }
+//    while(true) {
+//      Serial.println("\t frontDistance: " + String(frontDistance()));
+//      Serial.println("\t frontColor: " + String(frontColor()));
+//      Serial.println("\t getLuminosity: " + String(getLuminosity()));
+//      Serial.println("\t blank_luminosity: " + String(blank_luminosity));
+//      Serial.println();
+//      delay(800);
+//    }
     
 //    RescueProcess();
     debug();
@@ -374,20 +380,28 @@ void setup () {
   Serial.println("calibrated blank_luminosity: " + String(blank_luminosity));
   String obstacle_color = "RED";
   while (true) {
-    followWall(0, 0, 10);
+    followWall(0.0, -0.1, 10);
     bool has_obstacle = frontColor() == obstacle_color;
     if (has_obstacle) { // obstacle
+      both.stop();
       frontDistance(); delay(200);
-      has_obstacle = has_obstacle && frontDistance() < 10;
+      has_obstacle = has_obstacle && frontDistance() < 30;
       rightDistance();
       if (!has_obstacle) continue;
 
       Serial.println("obstacle ahead");
+      writeText("obstacle");
+      while(getProximity()!=0) {
+        followWall(0.0, -0.1, 10.5); 
+      }
+      /////////////
+      frontDistance(); delay(200);
+      adjustFrontDistance(basespeed, 2.5);
+      /////////////
       both.turnDegree(-turnspeed, -90);
       alignBack();
-      //while (!hasFoundWall() && frontColor()!=obstacle_color) {
       while (!hasFoundWall()) {
-        followWall(0, 0, 12);
+        followWall(0.0, -0.1, 11.5); //13.5
       }
       reachWall();
     } else if (hasFoundWall()) {
@@ -411,6 +425,7 @@ bool isCircle() {
 
 void RescueProcess() {
   frontDistance(); frontColor(); delay(200);
+  maxspeed = 100;
   basespeed = 70;
   turnspeed = 70;
 //  goto debugBlock;
@@ -436,18 +451,21 @@ void RescueProcess() {
   both.together(basespeed, 5);
   
   both.turnDegree(turnspeed, 90);
-//debugBlock:
   // EDIT HERE
-  float total_cube_distance = 10; // 9.5
+  float total_cube_distance = 15; // 14.5
   float increment_cube_distance = 7; // distance entre os cubos
 
   float search_distance = 22;
   float max_search_distance[99]; for (int i = 0; i <= 99; i++) max_search_distance[i] = search_distance;
   float max_vertical_distance = 90;
-  float after_get_cube_distance = 62;
+  float after_get_cube_distance = 75; //65
+
+//  debugBlock:
+
 
   for (int cube_id = 0; cube_id <= 99; cube_id++) {
     writeText(String(total_cube_distance));
+    reachWall();
     reachWall();
     adjustFrontDistance(basespeed, total_cube_distance);
     both.turnDegree(turnspeed, 90);
@@ -592,8 +610,20 @@ void RescueProcess() {
       turns++;
 
       // if not found circle:
-      both.turnDegree(-turnspeed, -90);
-//      alignBack();
+//      both.turnDegree(-turnspeed, -90); // before wtf
+  
+      // wtf
+      both.together(-maxspeed, -0.1);
+      both.turnDegree(turnspeed, 90);
+      frontDistance(); delay(200);
+      reachWall();
+      reachWall();
+      both.together(-basespeed, -0.1);
+      both.turnDegree(basespeed, 180);
+      both.stop();
+      alignBack();
+      /////////
+      
       const byte max_horizontal_distance = 95;
       const byte each_turn_distance = 17;
       adjustFrontDistance(basespeed, max_horizontal_distance - (turns * each_turn_distance));
